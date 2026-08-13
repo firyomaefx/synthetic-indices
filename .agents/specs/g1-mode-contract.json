@@ -1,0 +1,52 @@
+{
+  "id": "break100-g1-mode-contract",
+  "version": 1,
+  "date": "2026-08-13",
+  "goal": "Keep operating-mode promotion sequential, evidence-gated, and fail-closed.",
+  "narrative": "The broker-independent controller starts in Observe, validates immutable promotion evidence, and never imports an execution API. Demo requires a verified Demo environment, while Live modes additionally require owner, account, symbol, and unexpired lease controls.",
+  "expected_outcome": "Invalid or stale evidence cannot enable order intent, and a critical fault returns the controller to faulted Observe.",
+  "acceptance_vectors": [
+    {
+      "dimension": "correctness",
+      "threshold": 1.0,
+      "check": "python -m pytest -q tests/test_mode_controller.py"
+    },
+    {
+      "dimension": "security",
+      "threshold": 1.0,
+      "check": "python -m pytest -q tests/test_nontrading_boundaries.py"
+    }
+  ],
+  "satisfaction_threshold": 1.0,
+  "scope": {
+    "files": [
+      ".gitignore",
+      "pyproject.toml",
+      "README.md",
+      "CONTEXT.md",
+      "docs/project-management/CHANGE_LOG.md",
+      "docs/project-management/PHASE_GATE_REPORTS.md",
+      "docs/project-management/REQUIREMENTS_TRACEABILITY_MATRIX.md",
+      "src/break100/__init__.py",
+      "src/break100/nontrading/state_machine.py",
+      "src/break100/nontrading/__init__.py",
+      "tests/test_mode_controller.py",
+      "tests/test_nontrading_boundaries.py",
+      ".agents/specs/g1-mode-contract.json"
+    ],
+    "functions": [
+      "ModeController.request_promotion",
+      "ModeController.broker_order_intent_permitted_at",
+      "ModeController.fail_closed"
+    ],
+    "behaviors": [
+      "Observe and Shadow never permit broker-order intent",
+      "Promotions advance exactly one mode",
+      "Demo rejects non-Demo environments",
+      "Live controls expire closed",
+      "Critical faults return to Observe"
+    ]
+  },
+  "source": "agent",
+  "status": "active"
+}

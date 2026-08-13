@@ -34,5 +34,19 @@ Canary, and Live.
 ## G1 Planning — 2026-08-13
 
 Status: `IN PROGRESS`. Architecture, data/model contracts, RTM, RAID, quality,
-test, and implementation plans have been drafted. Exit awaits cross-document
-validation and initial executable contracts.
+test, and implementation plans are recorded. A broker-independent Python mode
+controller now defaults to Observe, enforces sequential evidence-gated
+promotion, requires Demo/Live controls, checks lease expiry continuously, and
+fails critical faults to Observe. AST-based tests verify its package cannot
+import execution adapters or use order-submission symbols.
+
+Validation evidence:
+
+- Wheel build: passed for `break100-0.1.0-py3-none-any.whl`.
+- Python compile: passed.
+- Pytest: 13 passed.
+- `ruff` and `mypy`: skipped because not installed in the current environment.
+
+This is not a complete execution boundary because no execution adapter, MQL5
+EA, or broker integration exists. G1 exit awaits the remaining interfaces and
+schema contracts. Shadow, Demo, Live Canary, and Live remain `NO-GO`.

@@ -4,10 +4,10 @@ Status values: `PLANNED`, `IMPLEMENTED`, `VERIFIED`, `EXTERNAL_BLOCK`.
 
 | ID | Requirement | Planned code | Planned verification | Status |
 |---|---|---|---|---|
-| SAF-01 | Live/AUTO defaults off | `src/break100/control` and MQL5 EA | state/config tests | PLANNED |
-| SAF-02 | Observe/Shadow cannot reach orders | separate execution adapters | static path + integration tests | PLANNED |
-| SAF-03 | Fail closed on uncertainty/fault | decision and health gates | fault-injection tests | PLANNED |
-| SAF-04 | Owner approval, account allowlist, lease | live control service | expiry/identity/account tests | PLANNED |
+| SAF-01 | Live/AUTO defaults off | Python mode contract and MQL5 EA | state/config tests | IMPLEMENTED: Python contract |
+| SAF-02 | Observe/Shadow cannot reach orders | separate execution adapters | static path + integration tests | IMPLEMENTED: Python import boundary |
+| SAF-03 | Fail closed on uncertainty/fault | decision and health gates | fault-injection tests | IMPLEMENTED: mode fault path |
+| SAF-04 | Owner approval, account allowlist, lease | live control service | expiry/identity/account tests | IMPLEMENTED: policy contract only |
 | DAT-01 | Immutable UTC bid/ask ticks | data collector/store | schema, UTC, append-only tests | PLANNED |
 | DAT-02 | Causal channels/features/labels | event pipeline | no-future-data and replay tests | PLANNED |
 | STA-01 | Edge gateway and corrected tests | research module | IID negative control and reference tests | PLANNED |
@@ -23,4 +23,3 @@ Status values: `PLANNED`, `IMPLEMENTED`, `VERIFIED`, `EXTERNAL_BLOCK`.
 | VAL-01 | Purged walk-forward, costs and stress | validation pipeline | reproducible report | PLANNED |
 
 Each `VERIFIED` transition must cite a command and immutable evidence artifact.
-
