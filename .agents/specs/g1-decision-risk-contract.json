@@ -1,0 +1,52 @@
+{
+  "id": "break100-g1-decision-risk-contract",
+  "version": 1,
+  "date": "2026-08-14",
+  "goal": "Abstain without unique positive after-cost SafeEV and size approved actions within hard risk limits.",
+  "narrative": "The decision contract validates probability models, subtracts spread, commission, slippage, and uncertainty, and returns NO_TRADE unless one healthy candidate has positive SafeEV. The risk contract sizes from stop-loss exposure, rounds down to broker volume steps, and blocks entries at immutable per-trade, daily, weekly, drawdown, and position ceilings.",
+  "expected_outcome": "Invalid inputs, non-positive or ambiguous edge, weakened limits, and breached loss controls all fail closed without broker interaction.",
+  "acceptance_vectors": [
+    {
+      "dimension": "correctness",
+      "threshold": 1.0,
+      "check": "python -m pytest -q tests/test_safe_ev.py tests/test_risk_engine.py"
+    },
+    {
+      "dimension": "safety",
+      "threshold": 1.0,
+      "check": "python -m pytest -q"
+    }
+  ],
+  "satisfaction_threshold": 1.0,
+  "scope": {
+    "files": [
+      ".agents/specs/g1-decision-risk-contract.json",
+      "CONTEXT.md",
+      "docs/project-management/CHANGE_LOG.md",
+      "docs/project-management/PHASE_GATE_REPORTS.md",
+      "docs/project-management/REQUIREMENTS_TRACEABILITY_MATRIX.md",
+      "src/break100/decision/__init__.py",
+      "src/break100/decision/safe_ev.py",
+      "src/break100/risk/__init__.py",
+      "src/break100/risk/engine.py",
+      "tests/test_safe_ev.py",
+      "tests/test_risk_engine.py"
+    ],
+    "functions": [
+      "evaluate_action",
+      "choose_action",
+      "calculate_position_size",
+      "evaluate_risk_gate"
+    ],
+    "behaviors": [
+      "All explicit trading costs reduce expected value",
+      "Uncertainty reduces SafeEV",
+      "NO_TRADE is mandatory without a unique positive SafeEV",
+      "Position size rounds down from stop risk",
+      "Configured limits cannot weaken hard ceilings"
+    ]
+  },
+  "source": "agent",
+  "status": "active"
+}
+

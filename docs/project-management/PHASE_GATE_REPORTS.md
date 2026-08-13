@@ -50,3 +50,17 @@ Validation evidence:
 This is not a complete execution boundary because no execution adapter, MQL5
 EA, or broker integration exists. G1 exit awaits the remaining interfaces and
 schema contracts. Shadow, Demo, Live Canary, and Live remain `NO-GO`.
+
+### 2026-08-14 safety-kernel evidence
+
+- SafeEV validates probabilities, includes spread, commission and slippage,
+  applies an uncertainty penalty, and abstains on unhealthy, non-positive, or
+  ambiguous candidates.
+- Position sizing derives volume from stop loss, tick size/value, and broker
+  minimum/maximum/step metadata without rounding risk upward.
+- Configurable values cannot exceed 0.25% per trade, 1% rolling 24-hour loss,
+  3% weekly loss, 5% total drawdown, or one position per symbol.
+- Full Python suite: 36 passed; compile and line-length checks passed.
+
+This is mathematical/control evidence only. It is not profitability evidence,
+does not validate broker metadata, and does not promote any operating mode.

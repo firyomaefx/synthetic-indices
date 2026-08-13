@@ -13,9 +13,9 @@ Status values: `PLANNED`, `IMPLEMENTED`, `VERIFIED`, `EXTERNAL_BLOCK`.
 | STA-01 | Edge gateway and corrected tests | research module | IID negative control and reference tests | PLANNED |
 | MOD-01 | Calibrated abstaining predictions | model pipeline | calibration/coverage/OOS tests | PLANNED |
 | MOD-02 | Frozen versioned champion/rollback | model registry | checksum/schema/swap/rollback tests | PLANNED |
-| EV-01 | After-cost SafeEV and NO_TRADE | decision engine | cost/tail/uncertainty unit tests | PLANNED |
+| EV-01 | After-cost SafeEV and NO_TRADE | decision engine | cost/tail/uncertainty unit tests | VERIFIED: deterministic contract |
 | RL-01 | Offline conservative RL only | offline RL package | OOD/action and baseline comparison | PLANNED |
-| RSK-01 | Stop-risk sizing and hard ceilings | risk engine | tick value/ceiling/drawdown tests | PLANNED |
+| RSK-01 | Stop-risk sizing and hard ceilings | risk engine | tick value/ceiling/drawdown tests | VERIFIED: broker-independent contract |
 | EXE-01 | Realistic Shadow fills | shadow simulator | deterministic and stress tests | PLANNED |
 | EXE-02 | Demo verification and OrderCheck | Demo adapter | rejected/non-demo/reconcile tests | EXTERNAL_BLOCK |
 | UI-01 | Minimal indicator with truthful state | MQL5 indicator | compile and visual checklist | PLANNED |

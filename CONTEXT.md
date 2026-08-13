@@ -7,14 +7,14 @@
 
 ## Current State
 - Current version: Unreleased greenfield baseline.
-- Working features: PMP/architecture controls and a broker-independent operating-mode controller; no trading system is running.
-- Recent verified changes: Mode promotions, Demo/Live control checks, lease expiry, fault demotion, and non-trading import boundaries passed 13 tests on 2026-08-13.
-- Known issues: No data/event/model/decision/risk pipeline, execution adapter, MQL5 source, datasets, Shadow/Demo evidence, approved account, or owner control lease; `ruff` and `mypy` were unavailable.
-- Pending work: Complete G1 schemas/interfaces, then extend the broker-independent safety kernel using TDD.
+- Working features: PMP/architecture controls, broker-independent mode controller, after-cost SafeEV abstention, stop-risk sizing, and hard loss/drawdown gates; no trading system is running.
+- Recent verified changes: Full Python suite passed 36 tests on 2026-08-14, covering mode safety, SafeEV, broker-step sizing, and hard ceilings.
+- Known issues: No data/event/model pipeline, audit store, execution adapter, MQL5 source, datasets, Shadow/Demo evidence, approved account, or owner control lease; `ruff` and `mypy` were unavailable.
+- Pending work: Complete G1 config/data/audit schemas, then build the causal tick/event pipeline using TDD.
 
 ## Architecture
-- Main components: Planned data, event, research, model, decision, risk, Shadow, isolated Demo/Live execution, MQL5 EA, and Indicator layers.
-- Important directories: `src/break100/nontrading`, `tests`, `docs/architecture`, `docs/project-management`, and `docs/security`.
+- Main components: Implemented non-trading mode, decision, and risk contracts; planned data, event, research, model, Shadow, isolated Demo/Live execution, MQL5 EA, and Indicator layers.
+- Important directories: `src/break100/nontrading`, `src/break100/decision`, `src/break100/risk`, `tests`, and `docs`.
 - Data flow: Planned tick to causal event to feature snapshot to frozen model to SafeEV and gates to mode adapter, ledger, audit, and reconciliation.
 - External dependencies: Local Python 3.14.3 and two MetaEditor/MT5 installations are discovered but unverified; broker data and Demo access are absent.
 
@@ -40,3 +40,11 @@
 - Validation: Wheel build and compile passed; `python -m pytest -q` passed 13 tests; line-length and diff checks passed; `ruff` and `mypy` skipped as unavailable.
 - Result: Partial G1 safety contract verified; no order-submission source exists; all modes beyond Observe remain NO-GO.
 - Remaining work: Define config/data/audit/risk interfaces and implement the decision/risk safety kernel before any execution adapter.
+
+### 2026-08-14 — G1 Decision and Risk Safety Kernel
+- Request: Enforce positive conservative after-cost expectancy and stop-risk sizing before any execution work.
+- Changes: Added validated outcome/cost inputs, uncertainty-adjusted SafeEV, mandatory NO_TRADE, exact Decimal sizing, broker-minimum-anchored volume steps, configurable limits beneath hard ceilings, and loss/drawdown/position gates.
+- Files affected: `src/break100/decision`, `src/break100/risk`, tests, behavioral spec, RTM, gate report, and change log.
+- Validation: Wheel/compile checks passed during the work package; full `python -m pytest -q` passed 36 tests; line-length and diff checks passed; `ruff` and `mypy` remained unavailable.
+- Result: Deterministic decision/risk contracts verified; no profitability or execution evidence exists; all modes beyond Observe remain NO-GO.
+- Remaining work: Add versioned config, tick/event/audit schemas, causal replay, and statistical edge validation.
