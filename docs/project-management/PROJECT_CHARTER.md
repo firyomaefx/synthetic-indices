@@ -13,6 +13,7 @@ Demo, Live Canary, and Live gates.
 - Isolate Observe and Shadow from every broker-order API.
 - Provide a complete, default-off execution path with owner-gated activation.
 - Preserve reproducible data, model, decision, execution, and gate evidence.
+- Restrict all future broker integration to Mtrading.
 
 ## Success criteria
 
@@ -43,4 +44,3 @@ No engineering artifact can substitute for explicit owner approval.
 
 Proceed with Gate G0/G1 foundation. Demo and all Live modes are `NO-GO`
 until their evidence gates pass.
-

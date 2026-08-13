@@ -8,7 +8,7 @@
   baseline is proven.
 - Versioned model registry and Python/ONNX parity checks.
 - MQL5 indicator, Observe/Shadow EA, isolated Demo adapter, and locked Live
-  adapter.
+  adapter for Mtrading only.
 - Shadow ledger, fill simulation, risk engine, kill switches, reconciliation,
   recovery, rollback, audit logs, tests, and operating documentation.
 
@@ -19,6 +19,7 @@
   broker data.
 - CAPTCHA bypass, credential storage, automatic owner approval, or automatic
   promotion of a freshly trained model.
+- Other brokers, including broker-specific compatibility layers or fallbacks.
 - Bounce trading in Live before independent rare-gap tail validation.
 
 ## Acceptance boundary
@@ -26,4 +27,3 @@
 Completion is always scoped to the highest gate supported by actual evidence.
 Lack of data or external broker evidence is a valid `NO-GO`, not permission to
 weaken a gate.
-

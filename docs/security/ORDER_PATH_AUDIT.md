@@ -23,6 +23,7 @@ broker execution adapter.
 - Indicator contains no execution dependency.
 - Observe/Shadow package graph contains no broker execution dependency.
 - Demo and Live use distinct adapters and configuration namespaces.
+- The adapter accepts Mtrading identity only and has no alternative broker path.
 - Demo adapter rejects non-Demo accounts before `OrderCheck`/submission.
 - Live adapter defaults disabled and requires G5 evidence, owner approval,
   account/symbol allowlists, an unexpired control lease, and canary caps.
@@ -33,4 +34,3 @@ broker execution adapter.
 - Accidental order path in the audited baseline: `NONE FOUND`.
 - Implemented Observe/Shadow isolation: `NOT YET PROVEN`.
 - Demo/Live readiness: `NO-GO`.
-

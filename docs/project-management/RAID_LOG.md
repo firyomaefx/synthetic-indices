@@ -16,7 +16,7 @@
 
 | ID | Assumption | Validation |
 |---|---|---|
-| A-01 | Broker exposes BREAK100 bid/ask ticks and symbol metadata | Verify in an approved MT5 session |
+| A-01 | Mtrading exposes BREAK100 bid/ask ticks and symbol metadata | Verify in an approved Mtrading MT5 session |
 | A-02 | Owner will explicitly designate approved Demo/Live accounts | Owner-supplied evidence at G4/G5 |
 | A-03 | Local Python and MetaEditor can support the planned build | Toolchain compile/probe during G2 |
 
@@ -26,7 +26,7 @@
 |---|---|---|---|
 | I-01 | High | No historical tick/event data exists in repository | Collect/import provenance-verified bid/ask data |
 | I-02 | High | No genuine Shadow or Demo evidence exists | Accumulate the required time/trades after build |
-| I-03 | Medium | Exact broker symbol/account constraints are unverified | Read symbol/account properties in approved session |
+| I-03 | Medium | Exact Mtrading symbol/account constraints are unverified | Read properties in approved Mtrading session |
 
 ## Dependencies
 
@@ -34,5 +34,4 @@
 |---|---|---|
 | D-01 | MT5 terminal and MetaEditor | MQL5 build/runtime evidence at G2+
 | D-02 | Python analytical/ONNX packages | statistical/ML build at G2+
-| D-03 | Genuine broker Demo environment | G4/G5 external evidence
-
+| D-03 | Genuine Mtrading Demo environment | G4/G5 external evidence

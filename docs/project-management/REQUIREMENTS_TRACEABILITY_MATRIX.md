@@ -8,6 +8,7 @@ Status values: `PLANNED`, `IMPLEMENTED`, `VERIFIED`, `EXTERNAL_BLOCK`.
 | SAF-02 | Observe/Shadow cannot reach orders | separate execution adapters | static path + integration tests | IMPLEMENTED: Python import boundary |
 | SAF-03 | Fail closed on uncertainty/fault | decision and health gates | fault-injection tests | IMPLEMENTED: mode fault path |
 | SAF-04 | Owner approval, account allowlist, lease | live control service | expiry/identity/account tests | IMPLEMENTED: policy contract only |
+| BRK-01 | Mtrading-only broker identity and allowlists | Mtrading policy boundary | identity/account/symbol tests | VERIFIED: policy contract |
 | DAT-01 | Immutable UTC bid/ask ticks | data collector/store | schema, UTC, append-only tests | PLANNED |
 | DAT-02 | Causal channels/features/labels | event pipeline | no-future-data and replay tests | PLANNED |
 | STA-01 | Edge gateway and corrected tests | research module | IID negative control and reference tests | PLANNED |
