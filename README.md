@@ -3,6 +3,13 @@
 Safety-first research and execution platform for BREAK100 channel-touch,
 bounce, and breakout events.
 
+## Broker scope
+
+The system is **Mtrading-only**. It has no fallback or compatibility path for
+other brokers. Future broker adapters must verify the reported Mtrading identity
+and explicit account/symbol allowlists before they can request any order intent.
+No account identifiers, credentials, or symbols are embedded in this repository.
+
 The repository is being built through evidence-gated modes:
 
 `OBSERVE -> SHADOW -> DEMO -> LIVE_CANARY -> LIVE`

@@ -64,3 +64,14 @@ schema contracts. Shadow, Demo, Live Canary, and Live remain `NO-GO`.
 
 This is mathematical/control evidence only. It is not profitability evidence,
 does not validate broker metadata, and does not promote any operating mode.
+
+### 2026-08-14 Mtrading-only scope evidence
+
+- The broker policy accepts the exact reported identity `Mtrading` only.
+- Empty account and symbol allowlists default to blocked.
+- A non-Mtrading identity, unapproved account, or unapproved symbol fails
+  closed with a stable reason code.
+- Focused Mtrading policy test suite: 7 passed.
+
+No terminal/account connection has been made, so this validates policy logic—not
+Mtrading session identity, market data, order submission, or execution.

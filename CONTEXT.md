@@ -2,25 +2,25 @@
 
 ## Project Summary
 - Purpose: Build an evidence-gated BREAK100 research and MT5 trading system that fails closed when edge, safety, or approval evidence is insufficient.
-- Main technologies: Planned Python 3, MQL5/MT5, ONNX, Parquet, and SQLite or DuckDB; project compatibility is not yet verified.
+- Main technologies: Planned Python 3, MQL5/MT5 for Mtrading, ONNX, Parquet, and SQLite or DuckDB; project compatibility is not yet verified.
 - Primary entry points: `break100.nontrading.ModeController` is the first executable contract; architecture and PMP controls are under `docs/`.
 
 ## Current State
 - Current version: Unreleased greenfield baseline.
-- Working features: PMP/architecture controls, broker-independent mode controller, after-cost SafeEV abstention, stop-risk sizing, and hard loss/drawdown gates; no trading system is running.
-- Recent verified changes: Full Python suite passed 36 tests on 2026-08-14, covering mode safety, SafeEV, broker-step sizing, and hard ceilings.
-- Known issues: No data/event/model pipeline, audit store, execution adapter, MQL5 source, datasets, Shadow/Demo evidence, approved account, or owner control lease; `ruff` and `mypy` were unavailable.
+- Working features: PMP/architecture controls, Mtrading-only broker policy, broker-independent mode controller, after-cost SafeEV abstention, stop-risk sizing, and hard loss/drawdown gates; no trading system is running.
+- Recent verified changes: Mtrading identity and account/symbol allowlist policy added; full Python suite passed 43 tests on 2026-08-14.
+- Known issues: No Mtrading data/event/model pipeline, audit store, execution adapter, MQL5 source, datasets, Shadow/Demo evidence, approved account, or owner control lease; `ruff` and `mypy` were unavailable.
 - Pending work: Complete G1 config/data/audit schemas, then build the causal tick/event pipeline using TDD.
 
 ## Architecture
 - Main components: Implemented non-trading mode, decision, and risk contracts; planned data, event, research, model, Shadow, isolated Demo/Live execution, MQL5 EA, and Indicator layers.
 - Important directories: `src/break100/nontrading`, `src/break100/decision`, `src/break100/risk`, `tests`, and `docs`.
 - Data flow: Planned tick to causal event to feature snapshot to frozen model to SafeEV and gates to mode adapter, ledger, audit, and reconciliation.
-- External dependencies: Local Python 3.14.3 and two MetaEditor/MT5 installations are discovered but unverified; broker data and Demo access are absent.
+- External dependencies: Local Python 3.14.3 and Mtrading MetaEditor/MT5 are discovered but unverified; Mtrading data and Demo access are absent.
 
 ## Constraints
 - Compatibility requirements: Preserve causal UTC bid/ask processing and verify Python, ONNX, and MQL5 parity before promotion.
-- Security requirements: AUTO/LIVE defaults off; Observe/Shadow cannot reach broker orders; owner approval, allowlists, and an expiring lease are mandatory for Live.
+- Security requirements: AUTO/LIVE defaults off; Observe/Shadow cannot reach broker orders; Mtrading identity, owner approval, allowlists, and an expiring lease are mandatory for Live.
 - Files or logic that must not be changed: Never weaken gate criteria, risk ceilings, evidence requirements, or fail-closed defaults without explicit owner authority and recorded decision.
 
 ## Loop History
@@ -48,3 +48,11 @@
 - Validation: Wheel/compile checks passed during the work package; full `python -m pytest -q` passed 36 tests; line-length and diff checks passed; `ruff` and `mypy` remained unavailable.
 - Result: Deterministic decision/risk contracts verified; no profitability or execution evidence exists; all modes beyond Observe remain NO-GO.
 - Remaining work: Add versioned config, tick/event/audit schemas, causal replay, and statistical edge validation.
+
+### 2026-08-14 — Mtrading-Only Broker Policy
+- Request: Restrict the system to Mtrading and publish the project to GitHub.
+- Changes: Added exact Mtrading identity enforcement and empty-by-default account/symbol allowlists; removed alternative-broker references from architecture and project artifacts.
+- Files affected: `src/break100/broker`, Mtrading policy tests, and scope/security/project documentation.
+- Validation: Focused policy tests passed 7 tests; full Python suite passed 43 tests; wheel/compile, production/docs Mtrading-only scan, secret scan, line-length, and diff checks passed; `ruff` and `mypy` were unavailable.
+- Result: Mtrading-only policy contract verified; no terminal connection, execution adapter, or approved account exists; all modes beyond Observe remain NO-GO.
+- Remaining work: Publish the verified local commits to a GitHub repository, then build Mtrading tick/event/audit schemas.

@@ -15,7 +15,7 @@ project artifacts. They do not implement trading behaviour.
 |---|---|---|
 | Git version control | Initialized local repository | Available, no baseline commit |
 | Python toolchain | Python 3.14.3 discovered | Available, project compatibility untested |
-| MQL5 build toolchain | Monaxa and Mtrading MetaEditor executables discovered | Available, compile untested |
+| MQL5 build toolchain | Mtrading MetaEditor executable discovered | Available, compile untested |
 | Tick collection and storage | No code/data | Absent |
 | Channel/event/feature pipeline | No code/tests | Absent |
 | Statistical/ML/RL pipeline | No code/models | Absent |
@@ -26,7 +26,7 @@ project artifacts. They do not implement trading behaviour.
 ## Confirmed integration candidates
 
 - Local Python research and operational services.
-- Explicitly selected local MetaEditor and MT5 terminal installations.
+- Explicitly selected local Mtrading MetaEditor and MT5 terminal installation.
 - Local analytical and operational stores after dependency validation.
 - Versioned ONNX exchange after Python/MQL5 parity validation.
 
@@ -34,7 +34,7 @@ These are candidates, not verified working integrations.
 
 ## Current operating truth
 
-There is no running trading system and therefore no active operating mode.
+There is no running trading system and therefore no active operating mode. The
+only supported broker scope is Mtrading; no account or symbol has been approved.
 `OBSERVE` is the first planned executable mode. Shadow, Demo, Live Canary, and
 Live remain `NO-GO`.
-

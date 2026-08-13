@@ -7,4 +7,4 @@
 | D-003 | 2026-08-13 | Start with deterministic breakout policy | Simpler, auditable baseline precedes ML/RL complexity | Accepted |
 | D-004 | 2026-08-13 | Use offline RL only and make it a challenger | No real-money exploration; deterministic baseline remains benchmark | Accepted |
 | D-005 | 2026-08-13 | Treat absent data/evidence as `NO-GO` | Profitability and external execution cannot be inferred | Accepted |
-
+| D-006 | 2026-08-14 | Support Mtrading only | User-directed broker scope; no compatibility fallback | Accepted |

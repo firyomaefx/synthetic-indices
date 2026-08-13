@@ -9,6 +9,14 @@
 4. Execution plane: distinct Shadow, Demo, and locked Live adapters.
 5. Presentation plane: MQL5 Indicator and minimal operational dashboard.
 
+## Broker scope
+
+Only Mtrading is supported. A future Mtrading adapter must supply
+independently-observed broker identity, account identifier, account environment,
+and symbol to the policy boundary. It has no non-Mtrading fallback. Exact
+account and symbol allowlists remain empty by default and must be injected by
+the owner-controlled runtime configuration, never source control.
+
 The Indicator never imports execution code. Observe and Shadow depend only on
 non-trading interfaces. Demo and Live adapters are separate modules loaded only
 after state-specific validation.
@@ -24,6 +32,8 @@ after state-specific validation.
 - `src/break100/shadow`: fills, ledger and Shadow reconciliation.
 - `src/break100/execution/demo`: verified Demo-only broker adapter.
 - `src/break100/execution/live`: locked owner/lease/allowlist adapter.
+- `src/break100/broker/mtrading.py`: Mtrading-only identity and allowlist
+  policy; deliberately no MT5 or order-submission dependency.
 - `mql5/Indicators`: visual-only BREAK100 Indicator.
 - `mql5/Experts`: stateful EA with isolated execution integration.
 - `evidence`: immutable manifests and gate outputs, excluding secrets.
@@ -43,4 +53,3 @@ Source code alone never enables Live. Activation requires a completed G5 gate,
 explicit owner action, verified approved account/symbol, time-limited signed or
 locally authenticated control lease, flat/safe state, and caps. Expiry or any
 critical failure blocks new entries automatically.
-
