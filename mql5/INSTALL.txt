@@ -1,0 +1,274 @@
+BREAK100 MetaTrader 5 — full setup
+==================================
+
+READINESS
+---------
+Ready now
+  - Attach BREAK100 to an MT5 chart
+  - Draw the causal channel (centre / upper / lower)
+  - Label touches: BREAKOUT_UP, BREAKOUT_DOWN, BOUNCE, CENSORED
+  - Compute after-cost SafeEV and always issue NO_TRADE
+  - Optional SHADOW virtual ledger (no broker orders)
+
+Not ready (blocked on purpose)
+  - Demo broker orders  (G4 NO-GO — no evidence pack)
+  - Live / real-money orders (G5/G6 NO-GO — source code cannot enable Live)
+  - AutoTrading, OrderSend, CTrade, MqlTradeRequest  (not in this package)
+
+This is an Observe / Shadow instrument. It will not open, close, or modify
+broker positions. Do not add OrderSend yourself.
+
+Windows trainer (.exe)
+---------------------
+Training is not inside MT5. The EA writes labels; you train offline.
+
+1. Leave the EA running until at least 16 EVENT labels (more is better).
+2. File: %APPDATA%\MetaQuotes\Terminal\Common\Files\
+     BREAK100_learn_<symbol>.csv
+3. Download BREAK100-Trainer.exe (Windows 64-bit).
+4. Double-click it, or drag the learn CSV onto the exe.
+5. It writes BREAK100_policy_<symbol>.csv in the same folder.
+6. Copy that policy file into Common\Files if it is not already there.
+7. Remove and reattach the EA. Comment shows learn ... RL_UCB.
+
+The trainer never talks to the broker. OOS R is not expected profit.
+
+------------------------------------------------
+0. What you need
+------------------------------------------------
+- A Windows, macOS, or Linux PC with MetaTrader 5 installed.
+  (MT4 will not compile these files.)
+- A broker that offers synthetic indices. Deriv MT5 is the usual choice
+  for Boom / Crash / Volatility / Step.
+- A DEMO synthetic-indices account. Do not start on a real account.
+- The zip: BREAK100-MT5.zip  (Experts + Indicators + Include/Break100)
+
+Recommended first symbol: Boom 100 Index  (or Crash 100 Index).
+M1 or M5 chart. Tick data is what the EA actually uses.
+
+------------------------------------------------
+1. Broker / terminal (Deriv example)
+------------------------------------------------
+1. Open a Deriv account and create an MT5 DEMO account of type
+   "Synthetic Indices" (not financial / forex).
+2. Download Deriv MT5 (or any MT5 build 3xxx+).
+3. Log in: File → Login to Trade Account
+     - Login, password, and server from the broker email
+     - Server name usually looks like  Deriv-Demo
+4. Confirm bottom-right of MT5 shows "demo" not "real".
+5. Market Watch (Ctrl+M) → right-click → Show All.
+6. Find and double-click:
+     Boom 100 Index
+     Crash 100 Index
+     Volatility 100 Index
+     Step Index
+   If a name differs slightly (Boom 100, BOOM100, …) use that symbol.
+7. Open Boom 100 Index, timeframe M1.
+8. Chart → Properties → Common: uncheck "Chart on foreground"
+   so channel lines stay visible.
+
+------------------------------------------------
+2. Copy the files
+------------------------------------------------
+1. Unzip BREAK100-MT5.zip. You should see:
+
+     INSTALL.txt
+     MQL5/
+       Experts/BREAK100.mq5
+       Indicators/BREAK100_Channel.mq5
+       Include/Break100/Channel.mqh
+       Include/Break100/Mode.mqh
+       Include/Break100/SafeEV.mqh
+       Include/Break100/Risk.mqh
+       Include/Break100/Shadow.mqh
+
+2. In MT5: File → Open Data Folder.
+3. Open the MQL5 folder inside that window.
+4. Copy, merging folders (do not replace the whole MQL5 tree):
+
+     zip/MQL5/Experts/BREAK100.mq5
+        →  <Data Folder>/MQL5/Experts/BREAK100.mq5
+
+     zip/MQL5/Indicators/BREAK100_Channel.mq5
+        →  <Data Folder>/MQL5/Indicators/BREAK100_Channel.mq5
+
+     zip/MQL5/Include/Break100/   (the whole folder)
+        →  <Data Folder>/MQL5/Include/Break100/
+
+5. Typical Windows data folder looks like:
+     C:\Users\<You>\AppData\Roaming\MetaQuotes\Terminal\<HASH>\MQL5\
+   Always use File → Open Data Folder. Do not copy into Program Files.
+
+------------------------------------------------
+3. Compile (required)
+------------------------------------------------
+1. Press F4 (MetaEditor), or Tools → MetaQuotes Language Editor.
+2. Navigator (Ctrl+D) → Indicators → BREAK100_Channel.mq5
+   Press F7. Toolbox → Errors must be 0.
+3. Navigator → Experts → BREAK100.mq5
+   Press F7. Errors must be 0.
+4. If you see "Break100\Channel.mqh not found":
+   the Include/Break100 folder is in the wrong place. Repeat step 2.
+5. Close MetaEditor. In MT5 Navigator, right-click Experts → Refresh.
+   BREAK100 should appear with a smiling icon.
+
+Compile order matters: indicator first, then EA.
+
+------------------------------------------------
+4. Attach to the chart
+------------------------------------------------
+1. AutoTrading button in the MT5 toolbar: leave it OFF (red).
+   Observe does not need it. Shadow does not need it.
+2. Tools → Options → Expert Advisors:
+     [ ] Allow DLL imports          (leave off)
+     [x] Allow algorithmic trading  (optional; not required for Observe)
+3. Drag Navigator → Experts → BREAK100 onto the Boom 100 chart.
+4. Common tab:
+     [x] Allow Algo Trading         (harmless; we still never send orders)
+     [ ] Allow DLL imports
+     [ ] Live Trading               (leave unchecked)
+5. Inputs tab — start with defaults:
+     InpMode            = OBSERVE
+     InpMadWindow       = 160
+     InpKalmanQ         = 0.08
+     InpMadK            = 2.4
+     InpShadowLedger    = true     (only used if you later pick SHADOW)
+     InpDrawChannel     = true
+     InpAttachIndicator = true
+     InpDrawArrows      = true
+     InpAlerts          = true
+6. OK.
+
+------------------------------------------------
+5. What you should see
+------------------------------------------------
+On the chart
+  - Three lines: dotted centre, solid upper, solid lower.
+  - Top-right label: SIGNAL  WAIT / WATCH / BUY / SELL / HOLD / EXIT / STAND_DOWN
+  - Top-left comment panel starting with:
+
+      SIGNAL  WAIT
+      warmup — wait for ~12 ticks, width settles ~160
+      do not send an order — issued NO_TRADE
+
+  - Green up arrow = BUY, red down arrow = SELL, gold mark = bounce/EXIT.
+  - On BUY/SELL/HOLD: five extra lines — entry (dot), SL (red), TP1/TP2/TP3 (green dashes).
+  - SIGNAL text always includes:
+
+      SIGNAL  BUY
+      BREAKOUT_UP + SafeEV>0 — Observe only
+      entry 12480.50   SL 12470.20   TP1 12490.80   TP2 12501.10   TP3 12511.40   (1R=10.30)
+
+Levels
+  Default (n < 16 closed labels):
+    SL  = entry ± max(half_width × InpStopAtrMult, 2 × spread)
+    TP1/2/3 = 1R / 2R / 3R
+  After 16 labels (InpUseLearner = true):
+    UCB picks an arm (balanced / tight / wide / runner) from realized R
+    on past closed events, then blends MFE/MAE quantiles.
+    SL/TP therefore move as the book learns. Never uses the live tick.
+    Saved to Common/Files/BREAK100_learn_<symbol>.csv
+  This is a research policy. It does not claim profitability.
+
+     InpUseLearner     = true
+     InpStopAtrMult    = 1.0
+     InpTp1R           = 1.0
+     InpTp2R           = 2.0
+     InpTp3R           = 3.0
+     InpDrawLevels     = true
+
+Experts tab (Toolbox)
+  - BREAK100 init  mode=OBSERVE  health=HEALTHY  orders=OFF  account=DEMO
+  - SIGNAL BUY / SELL / EXIT when a setup closes
+  - A popup Alert on BUY, SELL, EXIT (disable with InpAlerts = false)
+
+How to read buy / sell / exit
+  WAIT        nothing yet. Do nothing.
+  WATCH       price is touching a band. Wait.
+  BUY         BREAKOUT_UP and SafeEV > 0. Observe-only long idea.
+  SELL        BREAKOUT_DOWN and SafeEV > 0. Observe-only short idea.
+  HOLD        SHADOW virtual position is open.
+  EXIT        bounce, censored label, or shadow stop. Idea is done.
+  STAND_DOWN  a breakout printed but SafeEV/risk refused it.
+
+  issued is ALWAYS NO_TRADE. Do not press Buy/Sell on the MT5 ticket
+  because SIGNAL says BUY. That would be you trading, not the EA.
+
+Warm-up: MAD window is 160 ticks. Labels start after ~12 ticks. SafeEV
+stays conservative until at least 12 closed labels (InpMinSamples).
+  BUY/SELL often stay STAND_DOWN until enough labels exist.
+
+------------------------------------------------
+6. How to read the panel
+------------------------------------------------
+issued     Always NO_TRADE in this package. That is the live decision.
+hypo       What SafeEV would prefer if an order adapter existed.
+SafeEV     After-cost expected value minus uncertainty. Must be > 0 to
+           even hypothesise an entry. Negative = no edge after costs.
+reason     Why the issued action is NO_TRADE. Common codes:
+             WARMUP
+             NO_POSITIVE_SAFEEV
+             ORDER_INTENT_BLOCKED_OBSERVE
+             HEALTH_GATE_FAILED
+             DEMO_GATE_MISSING / LIVE_DISABLED   (if you tried those modes)
+shadow     Virtual book. Stays flat in OBSERVE. In SHADOW it may show
+           OPEN and a running pnl. This is not a broker position.
+
+------------------------------------------------
+7. Optional: SHADOW (still no broker orders)
+------------------------------------------------
+1. Chart → right-click EA face → Properties → Inputs.
+2. InpMode = SHADOW. OK.
+3. Virtual fills may open on labeled BREAKOUT when hypo SafeEV > 0 and
+   the risk gate passes. Size is stop-risk, capped at 0.25% of equity.
+4. Experts log:  SHADOW virtual LONG/SHORT lots=… entry=… sl=…
+5. Nothing is sent to the broker. AutoTrading can stay OFF.
+
+REAL accounts are forced back to OBSERVE even if you pick SHADOW.
+
+------------------------------------------------
+8. DEMO / LIVE
+------------------------------------------------
+Selecting DEMO or LIVE in inputs does nothing useful:
+  DEMO → forced OBSERVE, block_reason = DEMO_GATE_MISSING
+  LIVE → forced OBSERVE, block_reason = LIVE_DISABLED
+A real (non-demo) account cannot leave OBSERVE.
+
+There is no OrderSend in the source. Enabling Live later requires a
+completed G5 evidence pack, owner lease, allowlist, and a separate
+execution adapter. That work is not in this zip.
+
+------------------------------------------------
+9. Daily use
+------------------------------------------------
+- One chart, one EA instance per symbol you want to watch.
+- Leave it running through the session. It is tick-driven, not bar-driven.
+- Journal + Experts tabs are the audit trail. Copy them if you file notes.
+- Do not expect profit. Observe exists to collect labels and reasons.
+- To remove: right-click chart → Expert Advisors → Remove.
+
+------------------------------------------------
+10. Troubleshooting
+------------------------------------------------
+EA does not appear in Navigator
+  Refresh Navigator. Confirm the .mq5 is under MQL5/Experts (not Files).
+
+Compile: file not found Break100\Channel.mqh
+  Copy Include/Break100/*.mqh into <Data Folder>/MQL5/Include/Break100/.
+  Then recompile the indicator and the EA.
+
+Compile succeeds, nothing on chart
+  Drag the EA, not the indicator. Check Experts tab for init log.
+  Make sure the market is open / ticks are arriving (synthetics tick 24/7).
+
+"Cannot load indicator BREAK100_Channel"
+  Compile the indicator first. The EA still draws h-lines without it.
+
+Panel says FAULT / TICK_INVALID
+  Bid/ask missing. Open Market Watch, ensure the symbol is subscribed.
+
+Channel looks huge then tightens
+  Normal. Kalman + MAD need ~160 ticks to settle.
+
+I want it to trade my account
+  This package will not. Demo/Live order paths are gated and absent.

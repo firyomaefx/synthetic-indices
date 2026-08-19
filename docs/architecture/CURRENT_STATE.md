@@ -2,39 +2,27 @@
 
 ## Repository baseline
 
-As observed on 2026-08-13, the repository was an initialized Git worktree with
-no commit and no project files. There was no source, configuration, dependency
-manifest, test, documentation, dataset, model, database, or generated binary.
-
-The PMP and architecture documents added after that observation are the first
-project artifacts. They do not implement trading behaviour.
+Python G1 safety kernel (mode, SafeEV, risk) is present. MQL5 Observe/Shadow
+package v1.41 is added under `mql5/`. There is still no broker order path.
 
 ## Capability map
 
 | Capability | Evidence | State |
 |---|---|---|
-| Git version control | Initialized local repository | Available, no baseline commit |
-| Python toolchain | Python 3.14.3 discovered | Available, project compatibility untested |
-| MQL5 build toolchain | Monaxa and Mtrading MetaEditor executables discovered | Available, compile untested |
-| Tick collection and storage | No code/data | Absent |
-| Channel/event/feature pipeline | No code/tests | Absent |
-| Statistical/ML/RL pipeline | No code/models | Absent |
-| Indicator and EA | No MQL5 source or `.ex5` | Absent |
-| Shadow/Demo/Live execution | No code/evidence | Absent |
-| Profitability evidence | No dataset or evaluation | Absent |
-
-## Confirmed integration candidates
-
-- Local Python research and operational services.
-- Explicitly selected local MetaEditor and MT5 terminal installations.
-- Local analytical and operational stores after dependency validation.
-- Versioned ONNX exchange after Python/MQL5 parity validation.
-
-These are candidates, not verified working integrations.
+| Git version control | GitHub `firyomaefx/synthetic-indices` | Available |
+| Python G1 kernel | `src/break100` mode / SafeEV / risk + tests | Implemented, fail-closed |
+| MQL5 Observe EA | `mql5/Experts/BREAK100.mq5` v1.41 | Source ready; compile in MetaEditor (no `.ex5` in repo) |
+| Channel indicator | `mql5/Indicators/BREAK100_Channel.mq5` | Visual only, no execution |
+| Causal SL/TP learner | `mql5/Include/Break100/Learner.mqh` | UCB-1 + MFE/MAE quantiles, min 16 labels |
+| Offline trainer | `tools/break100_trainer.c` | REINFORCE + walk-forward; Windows exe is a build artifact |
+| Tick collection store | No durable tick warehouse | Absent |
+| Statistical G2 edge pack | No walk-forward evidence pack | NO-GO |
+| Deep ML/RL on ticks | Bandit/REINFORCE on labels only | Not G3 GO |
+| Shadow/Demo/Live execution | Observe/Shadow only; Demo/Live rejected at init | NO-GO |
+| Profitability evidence | Explicitly not claimed | Absent |
 
 ## Current operating truth
 
-There is no running trading system and therefore no active operating mode.
-`OBSERVE` is the first planned executable mode. Shadow, Demo, Live Canary, and
-Live remain `NO-GO`.
-
+`OBSERVE` is the executable mode. The EA issues `NO_TRADE` and can print
+hypothetical BUY/SELL with SL/TP1/2/3. Shadow is a virtual ledger only.
+Demo, Live Canary, and Live remain `NO-GO`. Source code cannot enable Live.
