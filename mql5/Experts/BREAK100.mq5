@@ -1,5 +1,5 @@
 #property copyright "BREAK100"
-#property version   "1.73"
+#property version   "1.74"
 #property description "Observe/Shadow/DEMO_AUTO(demo only). Live locked. No profit claim."
 
 #include <Break100/Channel.mqh>
@@ -124,7 +124,8 @@ void B100PaintBox();
 void B100PaintHud();
 void B100ApplyChartSkin();
 void B100RestoreChartSkin();
-void B100MarkBoxSignal(const int dir, const double price);
+void B100MarkBoxSignal(const int dir, const double price, datetime when = 0);
+void B100ReplayJournalMarks();
 
 int OnInit()
   {
@@ -194,7 +195,10 @@ int OnInit()
       Print(g_init_note);
    B100ApplyChartSkin();
    if(InpStrategy == B100_STRAT_BOX_M30)
+     {
       B100PaintBox();
+      B100ReplayJournalMarks();
+     }
    B100PaintPanel();
    return INIT_SUCCEEDED;
   }
@@ -955,14 +959,46 @@ void B100RestoreChartSkin()
    ChartRedraw(0);
   }
 
-void B100MarkBoxSignal(const int dir, const double price)
+void B100ReplayJournalMarks()
   {
    if(!InpDrawArrows)
       return;
-   const datetime t = TimeCurrent();
+   string key = _Symbol;
+   StringReplace(key, " ", "_");
+   const int fh = FileOpen("BREAK100_outcome_" + key + ".csv",
+                           FILE_READ | FILE_CSV | FILE_ANSI | FILE_COMMON, ',');
+   if(fh == INVALID_HANDLE)
+      return;
+   for(int i = 0; i < 6; i++)
+      FileReadString(fh);
+   datetime last_armed = 0;
+   while(!FileIsEnding(fh))
+     {
+      const datetime armed = (datetime)FileReadNumber(fh);
+      FileReadString(fh);
+      const string label = FileReadString(fh);
+      FileReadNumber(fh);
+      const double bid = FileReadNumber(fh);
+      const double ask = FileReadNumber(fh);
+      if(armed == 0 || armed == last_armed)
+         continue;
+      last_armed = armed;
+      if(label == "BREAKOUT_UP")
+         B100MarkBoxSignal(1, ask, armed);
+      else if(label == "BREAKOUT_DOWN")
+         B100MarkBoxSignal(-1, bid, armed);
+     }
+   FileClose(fh);
+  }
+
+void B100MarkBoxSignal(const int dir, const double price, datetime when)
+  {
+   if(!InpDrawArrows)
+      return;
+   const datetime t = (when > 0) ? when : TimeCurrent();
    const int step = PeriodSeconds(PERIOD_M30);
    const datetime t0 = t - 2 * step;
-   const string id = IntegerToString((int)(g_box.armed_bar > 0 ? g_box.armed_bar : t));
+   const string id = IntegerToString((int)(when > 0 ? when : (g_box.armed_bar > 0 ? g_box.armed_bar : t)));
    const string arr = "B100_jn_arr_" + id;
    const string ln  = "B100_jn_ln_" + id;
    const color clr = (dir > 0) ? CLR_BUY : CLR_SELL;
