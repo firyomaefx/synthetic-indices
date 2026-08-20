@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.42"
-#property description "Observe/Shadow on demo or real. Data only. No orders."
+#property version   "1.50"
+#property description "Observe/Shadow. Channel or M30 box-breakout. No orders."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -8,8 +8,15 @@
 #include <Break100/Risk.mqh>
 #include <Break100/Shadow.mqh>
 #include <Break100/Learner.mqh>
+#include <Break100/Box.mqh>
 
 input ENUM_B100_MODE InpMode           = B100_OBSERVE; // Operating mode (Demo/Live are rejected)
+input ENUM_B100_STRAT InpStrategy      = B100_STRAT_BOX_M30; // CHANNEL tick band, or M30 box breakout
+
+input ENUM_TIMEFRAMES InpBoxTF         = PERIOD_M30;   // Box timeframe
+input int            InpBoxBars        = 16;           // Closed bars in the box (prior only)
+input int            InpBoxPersist     = 1;            // Closed bars outside before BREAKOUT
+input bool           InpBoxNoFade      = true;         // M30: never fade support/resistance
 
 input int            InpMadWindow      = 160;          // MAD window
 input double         InpKalmanQ        = 0.08;         // Kalman Q
@@ -49,6 +56,7 @@ input bool           InpAlerts         = true;         // Popup on BUY/SELL/EXIT
 #define LV_TP1     "B100_lv_tp1"
 #define LV_TP2     "B100_lv_tp2"
 #define LV_TP3     "B100_lv_tp3"
+#define BOX_RECT   "B100_box"
 
 struct B100Levels
   {
@@ -70,6 +78,7 @@ B100Decision    g_decision;
 B100Levels      g_levels;
 B100Learner     g_learner;
 B100LearnPolicy g_policy;
+B100Box         g_box;
 int             g_ind_handle = INVALID_HANDLE;
 bool            g_ready      = false;
 datetime        g_last_bar   = 0;
@@ -100,6 +109,7 @@ int OnInit()
    B100ShadowInit(g_shadow);
    ZeroMemory(g_levels);
    B100LearnerInit(g_learner);
+   B100BoxInit(g_box);
    B100LearnerLoad(g_learner);
    if(B100PolicyLoad(g_policy))
      {
@@ -120,7 +130,7 @@ int OnInit()
    g_signal                = "WAIT";
    g_signal_note           = "warmup — no buy/sell yet";
 
-   if(InpAttachIndicator)
+   if(InpAttachIndicator && InpStrategy == B100_STRAT_CHANNEL)
      {
       g_ind_handle = iCustom(_Symbol, PERIOD_CURRENT, "BREAK100_Channel",
                              InpMadWindow, InpKalmanQ, InpKalmanRFloor, InpMadK);
@@ -128,7 +138,8 @@ int OnInit()
          ChartIndicatorAdd(0, 0, g_ind_handle);
      }
 
-   B100CreateLines();
+   if(InpStrategy == B100_STRAT_CHANNEL)
+      B100CreateLines();
    B100LevelLine(LV_ENTRY, mid, clrSilver, STYLE_DOT, "ENTRY");
    B100LevelLine(LV_SL,    mid, C'181,106,92', STYLE_SOLID, "SL");
    B100LevelLine(LV_TP1,   mid, C'111,154,125', STYLE_DASH, "TP1");
@@ -139,6 +150,7 @@ int OnInit()
    Print("BREAK100 init  mode=", B100ModeName(g_mode.mode),
          "  health=", (g_mode.health == B100_HEALTHY ? "HEALTHY" : "FAULT"),
          "  orders=OFF  account=", (B100IsDemoAccount() ? "DEMO" : (B100IsRealAccount() ? "REAL" : "UNKNOWN")),
+         "  strat=", (InpStrategy == B100_STRAT_BOX_M30 ? "BOX_M30" : "CHANNEL"),
          "  learner_n=", g_learner.n, "  policy=", g_policy.source);
    if(g_init_note != "")
       Print(g_init_note);
@@ -164,6 +176,7 @@ void OnDeinit(const int reason)
    ObjectDelete(0, LV_TP1);
    ObjectDelete(0, LV_TP2);
    ObjectDelete(0, LV_TP3);
+   ObjectDelete(0, BOX_RECT);
    ObjectsDeleteAll(0, "B100_ev_");
    B100LearnerSave(g_learner);
    Comment("");
@@ -190,11 +203,45 @@ void OnTick()
       return;
      }
 
-   const string labeled = B100Ingest(g_pipe, bid, ask);
-   if(labeled != "")
+   string labeled = "";
+   int decide_up = 0, decide_dn = 0, decide_bounce = 0, decide_cens = 0;
+   int learn_side = 0;
+   double learn_mfe = 0, learn_mae = 0, learn_hw = 0;
+
+   if(InpStrategy == B100_STRAT_BOX_M30)
      {
-      g_last_event = labeled;
-      B100LearnerPolicy(g_learner, g_pipe.last_label_side, g_policy);
+      labeled = B100BoxStep(g_box, InpBoxTF, InpBoxBars, InpBoxPersist);
+      if(labeled != "")
+        {
+         g_last_event = labeled;
+         learn_side = g_box.last_side;
+         learn_mfe  = g_box.last_mfe;
+         learn_mae  = g_box.last_mae;
+         learn_hw   = g_box.last_hw;
+         B100LearnerPolicy(g_learner, learn_side, g_policy);
+        }
+      decide_up     = g_box.n_break_up;
+      decide_dn     = g_box.n_break_dn;
+      decide_bounce = 0;
+      decide_cens   = g_box.n_fail;
+      B100PaintBox();
+     }
+   else
+     {
+      labeled = B100Ingest(g_pipe, bid, ask);
+      if(labeled != "")
+        {
+         g_last_event = labeled;
+         learn_side = g_pipe.last_label_side;
+         learn_mfe  = g_pipe.last_mfe;
+         learn_mae  = g_pipe.last_mae;
+         learn_hw   = g_pipe.last_hw;
+         B100LearnerPolicy(g_learner, learn_side, g_policy);
+        }
+      decide_up     = g_pipe.n_break_up;
+      decide_dn     = g_pipe.n_break_dn;
+      decide_bounce = g_pipe.n_bounce;
+      decide_cens   = g_pipe.n_censored;
      }
 
    B100Costs costs;
@@ -203,7 +250,7 @@ void OnTick()
    costs.slippage   = InpCostSlippage;
 
    B100Decide(g_decision,
-              g_pipe.n_break_up, g_pipe.n_break_dn, g_pipe.n_bounce, g_pipe.n_censored,
+              decide_up, decide_dn, decide_bounce, decide_cens,
               costs, InpUncertaintyK, InpMinSamples,
               (g_mode.health == B100_HEALTHY),
               B100BrokerOrderIntentPermitted(g_mode));
@@ -221,10 +268,20 @@ void OnTick()
    const bool shadow_closed = (shadow_was_open && !g_shadow.open);
 
    B100ComputeSignal(labeled, shadow_was_open, shadow_closed, bid, ask);
+   if(InpStrategy == B100_STRAT_BOX_M30 && labeled == "" &&
+      (g_signal == "WAIT" || g_signal == "WATCH"))
+     {
+      const double mid = 0.5 * (bid + ask);
+      g_signal = "WATCH";
+      g_signal_note = B100BoxWatchNote(g_box, mid);
+      if(!g_box.ready)
+        {
+         g_signal = "WAIT";
+        }
+     }
    if(labeled != "")
      {
-      B100LearnerObserve(g_learner, g_pipe.last_label_side, labeled,
-                         g_pipe.last_mfe, g_pipe.last_mae, g_pipe.last_hw);
+      B100LearnerObserve(g_learner, learn_side, labeled, learn_mfe, learn_mae, learn_hw);
       if((g_learner.n % 8) == 0)
          B100LearnerSave(g_learner);
      }
@@ -266,6 +323,43 @@ void B100FillLevels(const int dir, const double entry, const double ask, const d
    g_levels.tp2   = entry + dir * d2;
    g_levels.tp3   = entry + dir * d3;
    g_levels.tp_hit= 0;
+  }
+
+void B100FillBoxLevels(const int dir, const double entry, const double ask, const double bid)
+  {
+   const double spread = MathMax(ask - bid, _Point);
+   if(!g_box.ready || dir == 0)
+     {
+      B100FillLevels(dir, entry, ask, bid);
+      return;
+     }
+   double H = g_box.height;
+   if(H <= 0.0)
+     {
+      g_levels.valid = false;
+      return;
+     }
+   double tp1m = InpTp1R, tp2m = InpTp2R, tp3m = InpTp3R;
+   if(InpUseLearner)
+     {
+      tp1m = g_policy.tp1_r;
+      tp2m = g_policy.tp2_r;
+      tp3m = g_policy.tp3_r;
+     }
+   g_levels.valid = true;
+   g_levels.dir   = dir;
+   g_levels.entry = entry;
+   g_levels.r     = H;
+   if(dir > 0)
+      g_levels.sl = g_box.high - 0.20 * H;
+   else
+      g_levels.sl = g_box.low + 0.20 * H;
+   if((dir > 0 && g_levels.sl >= entry) || (dir < 0 && g_levels.sl <= entry))
+      g_levels.sl = entry - dir * MathMax(2.0 * spread, 0.15 * H);
+   g_levels.tp1 = entry + dir * H * MathMax(tp1m, 0.5);
+   g_levels.tp2 = entry + dir * H * MathMax(tp2m, tp1m + 0.2);
+   g_levels.tp3 = entry + dir * H * MathMax(tp3m, tp2m + 0.2);
+   g_levels.tp_hit = 0;
   }
 
 string B100LevelsText(void)
@@ -328,7 +422,10 @@ void B100ShadowStep(const double bid, const double ask, const string labeled)
       return;
 
    const double entry = (dir > 0) ? ask : bid;
-   B100FillLevels(dir, entry, ask, bid);
+   if(InpStrategy == B100_STRAT_BOX_M30)
+      B100FillBoxLevels(dir, entry, ask, bid);
+   else
+      B100FillLevels(dir, entry, ask, bid);
    if(!g_levels.valid)
       return;
    const double equity = AccountInfoDouble(ACCOUNT_EQUITY);
@@ -350,13 +447,26 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
    const double mid = 0.5 * (bid + ask);
    string next = g_signal;
    string note = g_signal_note;
+   const bool box_mode = (InpStrategy == B100_STRAT_BOX_M30);
+   bool blocked = false;
 
-   if(!g_pipe.warmed)
+   if(box_mode && !g_box.ready)
+     {
+      next = "WAIT";
+      note = "M30 box warming — need prior closed bars";
+      g_levels.valid = false;
+      blocked = true;
+     }
+   else if(!box_mode && !g_pipe.warmed)
      {
       next = "WAIT";
       note = "warmup — wait for ~12 ticks, width settles ~160";
       g_levels.valid = false;
+      blocked = true;
      }
+
+   if(blocked)
+     { }
    else if(g_shadow.open)
      {
       next = "HOLD";
@@ -381,11 +491,16 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
      }
    else if(labeled == "BREAKOUT_UP")
      {
-      B100FillLevels(1, ask, ask, bid);
+      if(box_mode)
+         B100FillBoxLevels(1, ask, ask, bid);
+      else
+         B100FillLevels(1, ask, ask, bid);
       if(g_decision.hypothetical == B100_ENTER_LONG && g_decision.safe_ev > 0.0 && g_risk_code == "RISK_GATE_PASSED")
         {
          next = "BUY";
-         note = "BREAKOUT_UP + SafeEV>0 — Observe only";
+         note = box_mode
+                ? "M30 box close above resistance — no fade, Observe only"
+                : "BREAKOUT_UP + SafeEV>0 — Observe only";
         }
       else
         {
@@ -397,11 +512,16 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
      }
    else if(labeled == "BREAKOUT_DOWN")
      {
-      B100FillLevels(-1, bid, ask, bid);
+      if(box_mode)
+         B100FillBoxLevels(-1, bid, ask, bid);
+      else
+         B100FillLevels(-1, bid, ask, bid);
       if(g_decision.hypothetical == B100_ENTER_SHORT && g_decision.safe_ev > 0.0 && g_risk_code == "RISK_GATE_PASSED")
         {
          next = "SELL";
-         note = "BREAKOUT_DOWN + SafeEV>0 — Observe only";
+         note = box_mode
+                ? "M30 box close below support — no fade, Observe only"
+                : "BREAKOUT_DOWN + SafeEV>0 — Observe only";
         }
       else
         {
@@ -414,11 +534,11 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
    else if(labeled == "BOUNCE" || labeled == "CENSORED_OR_AMBIGUOUS")
      {
       next = (shadow_was_open || g_last_alert == "HOLD") ? "EXIT" : "WAIT";
-      note = labeled + " — no entry";
+      note = box_mode ? (labeled + " — failed box break, no fade") : (labeled + " — no entry");
       g_signal_seq = g_pipe.seq;
       B100MarkEvent(labeled, mid);
      }
-   else if(g_pipe.pending.active)
+   else if(!box_mode && g_pipe.pending.active)
      {
       next = "WATCH";
       note = (g_pipe.pending.side > 0)
@@ -543,9 +663,34 @@ void B100PaintLevels()
    B100LevelLine(LV_TP3,   g_levels.tp3,   C'70,120,95',         STYLE_DASH,  "TP3");
   }
 
+void B100PaintBox()
+  {
+   if(InpStrategy != B100_STRAT_BOX_M30 || !g_box.ready)
+     {
+      ObjectSetInteger(0, BOX_RECT, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      return;
+     }
+   if(ObjectFind(0, BOX_RECT) < 0)
+     {
+      ObjectCreate(0, BOX_RECT, OBJ_RECTANGLE, 0, g_box.t_left, g_box.high, TimeCurrent(), g_box.low);
+      ObjectSetInteger(0, BOX_RECT, OBJPROP_COLOR, C'90,110,140');
+      ObjectSetInteger(0, BOX_RECT, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, BOX_RECT, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, BOX_RECT, OBJPROP_BACK, true);
+      ObjectSetInteger(0, BOX_RECT, OBJPROP_FILL, false);
+      ObjectSetInteger(0, BOX_RECT, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, BOX_RECT, OBJPROP_HIDDEN, true);
+     }
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_TIME, 0, g_box.t_left);
+   ObjectSetDouble(0, BOX_RECT, OBJPROP_PRICE, 0, g_box.high);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_TIME, 1, TimeCurrent());
+   ObjectSetDouble(0, BOX_RECT, OBJPROP_PRICE, 1, g_box.low);
+  }
+
 void B100UpdateLines()
   {
-   if(!InpDrawChannel)
+   if(!InpDrawChannel || InpStrategy == B100_STRAT_BOX_M30)
       return;
    ObjectSetDouble(0, LINE_MID, OBJPROP_PRICE, g_pipe.kalman_x);
    ObjectSetDouble(0, LINE_UP,  OBJPROP_PRICE, g_pipe.kalman_x + g_pipe.half_width);
@@ -581,6 +726,13 @@ void B100PaintPanel()
       "  dn " + IntegerToString(g_pipe.n_break_dn) +
       "  bounce " + IntegerToString(g_pipe.n_bounce) +
       "  cens " + IntegerToString(g_pipe.n_censored) + "\n" +
+      ((InpStrategy == B100_STRAT_BOX_M30)
+         ? ("BOX_M30  " + DoubleToString(g_box.low, _Digits) + " — " + DoubleToString(g_box.high, _Digits) +
+            "  H=" + DoubleToString(g_box.height, _Digits) +
+            "  up " + IntegerToString(g_box.n_break_up) +
+            "  dn " + IntegerToString(g_box.n_break_dn) +
+            "  fail " + IntegerToString(g_box.n_fail) + "\n")
+         : "") +
       "issued " + B100ActionName(g_decision.action) + "  " + g_decision.reason + "\n" +
       "hypo   " + B100ActionName(g_decision.hypothetical) + "  SafeEV " + DoubleToString(g_decision.safe_ev, 3) + "\n" +
       "risk   " + g_risk_code + "\n" +
