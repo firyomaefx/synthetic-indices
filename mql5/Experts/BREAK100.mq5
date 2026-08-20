@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.50"
-#property description "Observe/Shadow. Channel or M30 box-breakout. No orders."
+#property version   "1.60"
+#property description "Observe/Shadow. Tight M30 pause box + virtual BUY/SELL STOP. No orders."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -14,9 +14,12 @@ input ENUM_B100_MODE InpMode           = B100_OBSERVE; // Operating mode (Demo/L
 input ENUM_B100_STRAT InpStrategy      = B100_STRAT_BOX_M30; // CHANNEL tick band, or M30 box breakout
 
 input ENUM_TIMEFRAMES InpBoxTF         = PERIOD_M30;   // Box timeframe
-input int            InpBoxBars        = 16;           // Closed bars in the box (prior only)
-input int            InpBoxPersist     = 1;            // Closed bars outside before BREAKOUT
-input bool           InpBoxNoFade      = true;         // M30: never fade support/resistance
+input int            InpBoxMinBars     = 3;            // Min bars in a pause cluster
+input int            InpBoxMaxBars     = 8;            // Max bars in a pause cluster
+input int            InpBoxAtrPeriod   = 14;           // ATR for "tight" test
+input double         InpBoxAtrMax      = 0.95;         // Cluster range must be <= this × ATR
+input int            InpBoxTimeout     = 10;           // Armed bars without fill → cancel
+input bool           InpBoxNoFade      = true;         // Never fade the pause
 
 input int            InpMadWindow      = 160;          // MAD window
 input double         InpKalmanQ        = 0.08;         // Kalman Q
@@ -210,7 +213,9 @@ void OnTick()
 
    if(InpStrategy == B100_STRAT_BOX_M30)
      {
-      labeled = B100BoxStep(g_box, InpBoxTF, InpBoxBars, InpBoxPersist);
+      const double off = MathMax(_Point, 0.02 * MathMax(g_box.atr, _Point));
+      labeled = B100BoxStep(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars,
+                            InpBoxAtrPeriod, InpBoxAtrMax, InpBoxTimeout, off);
       if(labeled != "")
         {
          g_last_event = labeled;
@@ -346,19 +351,18 @@ void B100FillBoxLevels(const int dir, const double entry, const double ask, cons
       tp2m = g_policy.tp2_r;
       tp3m = g_policy.tp3_r;
      }
+   const double stop_px = (dir > 0) ? g_box.buy_stop : g_box.sell_stop;
+   const double other   = (dir > 0) ? g_box.low : g_box.high;
    g_levels.valid = true;
    g_levels.dir   = dir;
-   g_levels.entry = entry;
-   g_levels.r     = H;
-   if(dir > 0)
-      g_levels.sl = g_box.high - 0.20 * H;
-   else
-      g_levels.sl = g_box.low + 0.20 * H;
-   if((dir > 0 && g_levels.sl >= entry) || (dir < 0 && g_levels.sl <= entry))
-      g_levels.sl = entry - dir * MathMax(2.0 * spread, 0.15 * H);
-   g_levels.tp1 = entry + dir * H * MathMax(tp1m, 0.5);
-   g_levels.tp2 = entry + dir * H * MathMax(tp2m, tp1m + 0.2);
-   g_levels.tp3 = entry + dir * H * MathMax(tp3m, tp2m + 0.2);
+   g_levels.entry = stop_px;
+   g_levels.r     = MathAbs(stop_px - other);
+   g_levels.sl    = other;
+   if((dir > 0 && g_levels.sl >= g_levels.entry) || (dir < 0 && g_levels.sl <= g_levels.entry))
+      g_levels.sl = g_levels.entry - dir * MathMax(2.0 * spread, 0.5 * H);
+   g_levels.tp1 = g_levels.entry + dir * H * MathMax(tp1m, 0.5);
+   g_levels.tp2 = g_levels.entry + dir * H * MathMax(tp2m, tp1m + 0.2);
+   g_levels.tp3 = g_levels.entry + dir * H * MathMax(tp3m, tp2m + 0.2);
    g_levels.tp_hit = 0;
   }
 
@@ -499,7 +503,7 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
         {
          next = "BUY";
          note = box_mode
-                ? "M30 box close above resistance — no fade, Observe only"
+                ? "BUY STOP filled — break of pause high, Observe only"
                 : "BREAKOUT_UP + SafeEV>0 — Observe only";
         }
       else
@@ -520,7 +524,7 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
         {
          next = "SELL";
          note = box_mode
-                ? "M30 box close below support — no fade, Observe only"
+                ? "SELL STOP filled — break of pause low, Observe only"
                 : "BREAKOUT_DOWN + SafeEV>0 — Observe only";
         }
       else
@@ -644,6 +648,17 @@ void B100LevelLine(const string name, const double price, const color clr, const
 
 void B100PaintLevels()
   {
+   if(InpDrawLevels && InpStrategy == B100_STRAT_BOX_M30 &&
+      g_box.ready && g_box.state == B100_BOX_ARMED &&
+      (g_signal == "WATCH" || g_signal == "WAIT"))
+     {
+      B100LevelLine(LV_ENTRY, 0.5 * (g_box.high + g_box.low), clrSilver, STYLE_DOT, "BOX MID");
+      B100LevelLine(LV_SL,    g_box.sell_stop, C'181,106,92',  STYLE_SOLID, "SELL STOP");
+      B100LevelLine(LV_TP1,   g_box.buy_stop,  C'111,154,125', STYLE_SOLID, "BUY STOP");
+      ObjectSetInteger(0, LV_TP2, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      ObjectSetInteger(0, LV_TP3, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      return;
+     }
    const bool show = InpDrawLevels && g_levels.valid &&
                      (g_signal == "BUY" || g_signal == "SELL" || g_signal == "HOLD" ||
                       g_signal == "STAND_DOWN" || g_signal == "EXIT");
@@ -727,10 +742,13 @@ void B100PaintPanel()
       "  bounce " + IntegerToString(g_pipe.n_bounce) +
       "  cens " + IntegerToString(g_pipe.n_censored) + "\n" +
       ((InpStrategy == B100_STRAT_BOX_M30)
-         ? ("BOX_M30  " + DoubleToString(g_box.low, _Digits) + " — " + DoubleToString(g_box.high, _Digits) +
+         ? ("BOX  " + DoubleToString(g_box.low, _Digits) + " — " + DoubleToString(g_box.high, _Digits) +
             "  H=" + DoubleToString(g_box.height, _Digits) +
-            "  up " + IntegerToString(g_box.n_break_up) +
-            "  dn " + IntegerToString(g_box.n_break_dn) +
+            "  n=" + IntegerToString(g_box.bars) +
+            "  " + (g_box.state == B100_BOX_ARMED ? "ARMED" : "SCAN") + "\n" +
+            "BUY STOP " + DoubleToString(g_box.buy_stop, _Digits) +
+            "  SELL STOP " + DoubleToString(g_box.sell_stop, _Digits) +
+            "  boxes " + IntegerToString(g_box.n_boxes) +
             "  fail " + IntegerToString(g_box.n_fail) + "\n")
          : "") +
       "issued " + B100ActionName(g_decision.action) + "  " + g_decision.reason + "\n" +
