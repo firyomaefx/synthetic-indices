@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.61"
-#property description "Observe/Shadow. Tight pause + tick OCO BUY/SELL STOP. No orders."
+#property version   "1.62"
+#property description "Observe/Shadow. Visual pause box + tick OCO. No orders."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -60,6 +60,23 @@ input bool           InpAlerts         = true;         // Popup on BUY/SELL/EXIT
 #define LV_TP2     "B100_lv_tp2"
 #define LV_TP3     "B100_lv_tp3"
 #define BOX_RECT   "B100_box"
+#define BOX_RES    "B100_box_res"
+#define BOX_SUP    "B100_box_sup"
+#define BOX_MID    "B100_box_mid"
+#define BOX_BUY    "B100_box_buystop"
+#define BOX_SELL   "B100_box_sellstop"
+#define BOX_RES_LBL "B100_box_res_lbl"
+#define BOX_SUP_LBL "B100_box_sup_lbl"
+#define HUD_BG     "B100_hud_bg"
+
+#define CLR_INK      C'11,13,18'
+#define CLR_HUD      C'16,18,24'
+#define CLR_BOX_FILL C'22,28,38'
+#define CLR_RES      C'198,162,98'
+#define CLR_SUP      C'86,138,128'
+#define CLR_EQ       C'120,118,108'
+#define CLR_BUY      C'212,175,106'
+#define CLR_SELL     C'186,96,96'
 
 struct B100Levels
   {
@@ -92,6 +109,15 @@ string          g_signal     = "WAIT";
 string          g_signal_note= "warmup";
 string          g_last_alert = "";
 int             g_signal_seq = 0;
+bool            g_skin_on    = false;
+color           g_old_bg, g_old_fg, g_old_grid, g_old_up, g_old_dn, g_old_bull, g_old_bear, g_old_ask, g_old_bid, g_old_vol;
+bool            g_old_show_grid, g_old_show_vol, g_old_show_ohlc, g_old_show_ask;
+
+void B100PaintBox();
+void B100PaintHud();
+void B100ApplyChartSkin();
+void B100RestoreChartSkin();
+void B100MarkBoxSignal(const int dir, const double price);
 
 int OnInit()
   {
@@ -158,6 +184,9 @@ int OnInit()
          "  learner_n=", g_learner.n, "  policy=", g_policy.source);
    if(g_init_note != "")
       Print(g_init_note);
+   B100ApplyChartSkin();
+   if(InpStrategy == B100_STRAT_BOX_M30)
+      B100PaintBox();
    B100PaintPanel();
    return INIT_SUCCEEDED;
   }
@@ -181,9 +210,19 @@ void OnDeinit(const int reason)
    ObjectDelete(0, LV_TP2);
    ObjectDelete(0, LV_TP3);
    ObjectDelete(0, BOX_RECT);
+   ObjectDelete(0, BOX_RES);
+   ObjectDelete(0, BOX_SUP);
+   ObjectDelete(0, BOX_MID);
+   ObjectDelete(0, BOX_BUY);
+   ObjectDelete(0, BOX_SELL);
+   ObjectDelete(0, BOX_RES_LBL);
+   ObjectDelete(0, BOX_SUP_LBL);
+   ObjectDelete(0, HUD_BG);
    ObjectsDeleteAll(0, "B100_ev_");
    ObjectsDeleteAll(0, "B100_hx_");
+   ObjectsDeleteAll(0, "B100_box");
    B100LearnerSave(g_learner);
+   B100RestoreChartSkin();
    Comment("");
   }
 
@@ -516,7 +555,10 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
          note = "BREAKOUT_UP but " + (box_mode ? g_risk_code : g_decision.reason);
         }
       g_signal_seq = g_pipe.seq;
-      B100MarkEvent(labeled, mid);
+      if(box_mode && next == "BUY")
+         B100MarkBoxSignal(1, mid);
+      else if(!box_mode)
+         B100MarkEvent(labeled, mid);
      }
    else if(labeled == "BREAKOUT_DOWN")
      {
@@ -540,7 +582,10 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
          note = "BREAKOUT_DOWN but " + (box_mode ? g_risk_code : g_decision.reason);
         }
       g_signal_seq = g_pipe.seq;
-      B100MarkEvent(labeled, mid);
+      if(box_mode && next == "SELL")
+         B100MarkBoxSignal(-1, mid);
+      else if(!box_mode)
+         B100MarkEvent(labeled, mid);
      }
    else if(labeled == "BOUNCE" || labeled == "CENSORED_OR_AMBIGUOUS")
      {
@@ -621,9 +666,9 @@ void B100CreateLines()
   {
    if(!InpDrawChannel)
       return;
-   B100HLine(LINE_MID, clrSilver, STYLE_DOT);
-   B100HLine(LINE_UP,  C'139,144,160', STYLE_SOLID);
-   B100HLine(LINE_DN,  C'139,144,160', STYLE_SOLID);
+   B100HLine(LINE_MID, CLR_EQ,  STYLE_DOT);
+   B100HLine(LINE_UP,  CLR_RES, STYLE_SOLID);
+   B100HLine(LINE_DN,  CLR_SUP, STYLE_SOLID);
   }
 
 void B100HLine(const string name, const color clr, const ENUM_LINE_STYLE style)
@@ -659,9 +704,9 @@ void B100PaintLevels()
       g_box.ready && g_box.state == B100_BOX_ARMED &&
       (g_signal == "WATCH" || g_signal == "WAIT"))
      {
-      B100LevelLine(LV_ENTRY, 0.5 * (g_box.high + g_box.low), clrSilver, STYLE_DOT, "BOX MID");
-      B100LevelLine(LV_SL,    g_box.sell_stop, C'181,106,92',  STYLE_SOLID, "SELL STOP");
-      B100LevelLine(LV_TP1,   g_box.buy_stop,  C'111,154,125', STYLE_SOLID, "BUY STOP");
+      B100LevelLine(LV_ENTRY, 0.5 * (g_box.high + g_box.low), CLR_EQ, STYLE_DOT, "BOX MID");
+      B100LevelLine(LV_SL,    g_box.sell_stop, CLR_SELL, STYLE_SOLID, "SELL STOP");
+      B100LevelLine(LV_TP1,   g_box.buy_stop,  CLR_BUY,  STYLE_SOLID, "BUY STOP");
       ObjectSetInteger(0, LV_TP2, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
       ObjectSetInteger(0, LV_TP3, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
       return;
@@ -694,14 +739,48 @@ void B100PaintHistBoxes()
       ObjectCreate(0, id, OBJ_RECTANGLE, 0,
                    g_box.hist[i].t_left, g_box.hist[i].high,
                    g_box.hist[i].t_right + PeriodSeconds(InpBoxTF), g_box.hist[i].low);
-      ObjectSetInteger(0, id, OBJPROP_COLOR, C'180,70,70');
+      ObjectSetInteger(0, id, OBJPROP_COLOR, CLR_BOX_FILL);
       ObjectSetInteger(0, id, OBJPROP_STYLE, STYLE_SOLID);
       ObjectSetInteger(0, id, OBJPROP_WIDTH, 1);
       ObjectSetInteger(0, id, OBJPROP_BACK, true);
-      ObjectSetInteger(0, id, OBJPROP_FILL, false);
+      ObjectSetInteger(0, id, OBJPROP_FILL, true);
       ObjectSetInteger(0, id, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, id, OBJPROP_HIDDEN, true);
      }
+  }
+
+void B100BoxRail(const string name, const datetime t0, const datetime t1, const double price, const color clr, const int width)
+  {
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_TREND, 0, t0, price, t1, price);
+   ObjectSetInteger(0, name, OBJPROP_TIME, 0, t0);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, 0, price);
+   ObjectSetInteger(0, name, OBJPROP_TIME, 1, t1);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, 1, price);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+   ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, true);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+  }
+
+void B100BoxTag(const string name, const datetime t, const double price, const string text, const color clr, const ENUM_ANCHOR_POINT anchor)
+  {
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_TEXT, 0, t, price);
+   ObjectSetInteger(0, name, OBJPROP_TIME, 0, t);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, 0, price);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetString(0, name, OBJPROP_FONT, "Georgia");
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, anchor);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
   }
 
 void B100PaintBox()
@@ -714,25 +793,48 @@ void B100PaintBox()
      }
    if(InpStrategy != B100_STRAT_BOX_M30 || !g_box.ready)
      {
-      ObjectSetInteger(0, BOX_RECT, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      ObjectSetInteger(0, BOX_RECT,    OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      ObjectSetInteger(0, BOX_RES,     OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      ObjectSetInteger(0, BOX_SUP,     OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      ObjectSetInteger(0, BOX_MID,     OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      ObjectSetInteger(0, BOX_BUY,     OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      ObjectSetInteger(0, BOX_SELL,    OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      ObjectSetInteger(0, BOX_RES_LBL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      ObjectSetInteger(0, BOX_SUP_LBL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
       return;
      }
+   const datetime t1 = TimeCurrent() + PeriodSeconds(PERIOD_M30) * 6;
+   const datetime t0 = (g_box.t_left > 0) ? g_box.t_left : iTime(_Symbol, PERIOD_M30, 8);
    if(ObjectFind(0, BOX_RECT) < 0)
-     {
-      ObjectCreate(0, BOX_RECT, OBJ_RECTANGLE, 0, g_box.t_left, g_box.high, TimeCurrent(), g_box.low);
-      ObjectSetInteger(0, BOX_RECT, OBJPROP_COLOR, C'90,110,140');
-      ObjectSetInteger(0, BOX_RECT, OBJPROP_STYLE, STYLE_SOLID);
-      ObjectSetInteger(0, BOX_RECT, OBJPROP_WIDTH, 1);
-      ObjectSetInteger(0, BOX_RECT, OBJPROP_BACK, true);
-      ObjectSetInteger(0, BOX_RECT, OBJPROP_FILL, false);
-      ObjectSetInteger(0, BOX_RECT, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, BOX_RECT, OBJPROP_HIDDEN, true);
-     }
-   ObjectSetInteger(0, BOX_RECT, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
-   ObjectSetInteger(0, BOX_RECT, OBJPROP_TIME, 0, g_box.t_left);
+      ObjectCreate(0, BOX_RECT, OBJ_RECTANGLE, 0, t0, g_box.high, t1, g_box.low);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_TIME, 0, t0);
    ObjectSetDouble(0, BOX_RECT, OBJPROP_PRICE, 0, g_box.high);
-   ObjectSetInteger(0, BOX_RECT, OBJPROP_TIME, 1, TimeCurrent());
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_TIME, 1, t1);
    ObjectSetDouble(0, BOX_RECT, OBJPROP_PRICE, 1, g_box.low);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_COLOR, CLR_BOX_FILL);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_STYLE, STYLE_SOLID);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_WIDTH, 1);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_BACK, true);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_FILL, true);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+
+   B100BoxRail(BOX_RES, t0, t1, g_box.high, CLR_RES, 2);
+   B100BoxRail(BOX_SUP, t0, t1, g_box.low,  CLR_SUP, 2);
+   B100BoxRail(BOX_MID, t0, t1, 0.5 * (g_box.high + g_box.low), CLR_EQ, 1);
+   if(g_box.state == B100_BOX_ARMED)
+     {
+      B100BoxRail(BOX_BUY,  t0, t1, g_box.buy_stop,  CLR_BUY,  2);
+      B100BoxRail(BOX_SELL, t0, t1, g_box.sell_stop, CLR_SELL, 2);
+     }
+   else
+     {
+      ObjectSetInteger(0, BOX_BUY,  OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      ObjectSetInteger(0, BOX_SELL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+     }
+   B100BoxTag(BOX_RES_LBL, t0, g_box.high, "RES", CLR_RES, ANCHOR_LEFT_LOWER);
+   B100BoxTag(BOX_SUP_LBL, t0, g_box.low,  "SUP", CLR_SUP, ANCHOR_LEFT_UPPER);
   }
 
 void B100UpdateLines()
@@ -744,56 +846,147 @@ void B100UpdateLines()
    ObjectSetDouble(0, LINE_DN,  OBJPROP_PRICE, g_pipe.kalman_x - g_pipe.half_width);
   }
 
+void B100ApplyChartSkin()
+  {
+   if(g_skin_on)
+      return;
+   g_old_bg   = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+   g_old_fg   = (color)ChartGetInteger(0, CHART_COLOR_FOREGROUND);
+   g_old_grid = (color)ChartGetInteger(0, CHART_COLOR_GRID);
+   g_old_up   = (color)ChartGetInteger(0, CHART_COLOR_CHART_UP);
+   g_old_dn   = (color)ChartGetInteger(0, CHART_COLOR_CHART_DOWN);
+   g_old_bull = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BULL);
+   g_old_bear = (color)ChartGetInteger(0, CHART_COLOR_CANDLE_BEAR);
+   g_old_ask  = (color)ChartGetInteger(0, CHART_COLOR_ASK);
+   g_old_bid  = (color)ChartGetInteger(0, CHART_COLOR_BID);
+   g_old_vol  = (color)ChartGetInteger(0, CHART_COLOR_VOLUME);
+   g_old_show_grid = (bool)ChartGetInteger(0, CHART_SHOW_GRID);
+   g_old_show_vol  = (ChartGetInteger(0, CHART_SHOW_VOLUMES) != CHART_VOLUME_HIDE);
+   g_old_show_ohlc = (bool)ChartGetInteger(0, CHART_SHOW_OHLC);
+   g_old_show_ask  = (bool)ChartGetInteger(0, CHART_SHOW_ASK_LINE);
+   g_skin_on = true;
+   ChartSetInteger(0, CHART_MODE, CHART_CANDLES);
+   ChartSetInteger(0, CHART_SHOW_GRID, false);
+   ChartSetInteger(0, CHART_SHOW_VOLUMES, CHART_VOLUME_HIDE);
+   ChartSetInteger(0, CHART_SHOW_OHLC, false);
+   ChartSetInteger(0, CHART_SHOW_PERIOD_SEP, false);
+   ChartSetInteger(0, CHART_SHOW_ASK_LINE, true);
+   ChartSetInteger(0, CHART_COLOR_BACKGROUND, CLR_INK);
+   ChartSetInteger(0, CHART_COLOR_FOREGROUND, C'184,179,168');
+   ChartSetInteger(0, CHART_COLOR_GRID, C'22,26,34');
+   ChartSetInteger(0, CHART_COLOR_CHART_UP, CLR_RES);
+   ChartSetInteger(0, CHART_COLOR_CHART_DOWN, CLR_SELL);
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, CLR_RES);
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, CLR_SELL);
+   ChartSetInteger(0, CHART_COLOR_BID, CLR_SUP);
+   ChartSetInteger(0, CHART_COLOR_ASK, CLR_RES);
+   ChartSetInteger(0, CHART_COLOR_VOLUME, C'48,54,64');
+   ChartRedraw(0);
+  }
+
+void B100RestoreChartSkin()
+  {
+   if(!g_skin_on)
+      return;
+   ChartSetInteger(0, CHART_COLOR_BACKGROUND, g_old_bg);
+   ChartSetInteger(0, CHART_COLOR_FOREGROUND, g_old_fg);
+   ChartSetInteger(0, CHART_COLOR_GRID, g_old_grid);
+   ChartSetInteger(0, CHART_COLOR_CHART_UP, g_old_up);
+   ChartSetInteger(0, CHART_COLOR_CHART_DOWN, g_old_dn);
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BULL, g_old_bull);
+   ChartSetInteger(0, CHART_COLOR_CANDLE_BEAR, g_old_bear);
+   ChartSetInteger(0, CHART_COLOR_ASK, g_old_ask);
+   ChartSetInteger(0, CHART_COLOR_BID, g_old_bid);
+   ChartSetInteger(0, CHART_COLOR_VOLUME, g_old_vol);
+   ChartSetInteger(0, CHART_SHOW_GRID, g_old_show_grid);
+   ChartSetInteger(0, CHART_SHOW_VOLUMES, g_old_show_vol ? CHART_VOLUME_TICK : CHART_VOLUME_HIDE);
+   ChartSetInteger(0, CHART_SHOW_OHLC, g_old_show_ohlc);
+   ChartSetInteger(0, CHART_SHOW_ASK_LINE, g_old_show_ask);
+   g_skin_on = false;
+   ChartRedraw(0);
+  }
+
+void B100MarkBoxSignal(const int dir, const double price)
+  {
+   if(!InpDrawArrows)
+      return;
+   const datetime t = iTime(_Symbol, PERIOD_M30, 1);
+   const string name = "B100_box_ev_" + IntegerToString((int)t);
+   if(ObjectFind(0, name) >= 0)
+      ObjectDelete(0, name);
+   ObjectCreate(0, name, OBJ_ARROW, 0, t, price);
+   ObjectSetInteger(0, name, OBJPROP_ARROWCODE, (dir > 0) ? 233 : 234);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, (dir > 0) ? CLR_BUY : CLR_SELL);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+  }
+
+void B100PaintHud()
+  {
+   const int x = 14;
+   const int y = 16;
+   const bool armed = (InpStrategy == B100_STRAT_BOX_M30 && g_box.ready && g_box.state == B100_BOX_ARMED);
+   const int h = (g_levels.valid || armed) ? 78 : 56;
+   if(ObjectFind(0, HUD_BG) < 0)
+      ObjectCreate(0, HUD_BG, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_XSIZE, 168);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_YSIZE, h);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_BGCOLOR, CLR_HUD);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_COLOR, C'42,46,56');
+   ObjectSetInteger(0, HUD_BG, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_WIDTH, 1);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_BACK, false);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_HIDDEN, true);
+
+   color clr = C'168,164,154';
+   if(g_signal == "BUY") clr = CLR_BUY;
+   else if(g_signal == "SELL") clr = CLR_SELL;
+   else if(g_signal == "EXIT") clr = CLR_RES;
+   else if(g_signal == "WATCH" || g_signal == "HOLD") clr = C'184,179,168';
+   else if(g_signal == "STAND_DOWN") clr = CLR_SELL;
+
+   if(ObjectFind(0, LBL_SIG) < 0)
+      ObjectCreate(0, LBL_SIG, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, LBL_SIG, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, LBL_SIG, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, LBL_SIG, OBJPROP_XDISTANCE, x + 16);
+   ObjectSetInteger(0, LBL_SIG, OBJPROP_YDISTANCE, y + 10);
+   ObjectSetInteger(0, LBL_SIG, OBJPROP_FONTSIZE, 22);
+   ObjectSetString(0, LBL_SIG, OBJPROP_FONT, "Georgia");
+   ObjectSetInteger(0, LBL_SIG, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, LBL_SIG, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, LBL_SIG, OBJPROP_HIDDEN, true);
+   ObjectSetString(0, LBL_SIG, OBJPROP_TEXT, g_signal);
+
+   string sub = "";
+   if(g_levels.valid)
+      sub = "SL " + DoubleToString(g_levels.sl, _Digits) + "   TP1 " + DoubleToString(g_levels.tp1, _Digits);
+   else if(armed)
+      sub = "BUY " + DoubleToString(g_box.buy_stop, _Digits) + "  SELL " + DoubleToString(g_box.sell_stop, _Digits);
+   if(ObjectFind(0, LBL_LV) < 0)
+      ObjectCreate(0, LBL_LV, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, LBL_LV, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, LBL_LV, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, LBL_LV, OBJPROP_XDISTANCE, x + 16);
+   ObjectSetInteger(0, LBL_LV, OBJPROP_YDISTANCE, y + 42);
+   ObjectSetInteger(0, LBL_LV, OBJPROP_FONTSIZE, 9);
+   ObjectSetString(0, LBL_LV, OBJPROP_FONT, "Georgia");
+   ObjectSetInteger(0, LBL_LV, OBJPROP_COLOR, C'140,136,128');
+   ObjectSetInteger(0, LBL_LV, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, LBL_LV, OBJPROP_HIDDEN, true);
+   ObjectSetString(0, LBL_LV, OBJPROP_TEXT, sub);
+  }
+
 void B100PaintPanel()
   {
-   const string mode = B100ModeName(g_mode.mode);
-   const string health = (g_mode.health == B100_HEALTHY) ? "HEALTHY" : "FAULT";
-   const double mid = 0.5 * (SymbolInfoDouble(_Symbol, SYMBOL_BID) + SymbolInfoDouble(_Symbol, SYMBOL_ASK));
-   string text =
-      "SIGNAL  " + g_signal + "\n" +
-      g_signal_note + "\n" +
-      B100LevelsText() + "\n" +
-      "learn  n=" + IntegerToString(g_policy.n) +
-      "  " + g_policy.source +
-      "  arm=" + g_policy.arm_id +
-      "  meanR=" + DoubleToString(g_policy.mean_r, 3) +
-      "  slR=" + DoubleToString(g_policy.sl_r, 2) +
-      "  tpR=" + DoubleToString(g_policy.tp1_r, 2) +
-      "/" + DoubleToString(g_policy.tp2_r, 2) +
-      "/" + DoubleToString(g_policy.tp3_r, 2) + "\n" +
-      "do not send an order — issued NO_TRADE\n" +
-      "--------------------------------\n" +
-      "BREAK100  " + mode + "  " + health + "  orders OFF\n" +
-      _Symbol + "  " + EnumToString(_Period) + "\n" +
-      "mid " + DoubleToString(mid, _Digits) +
-      "  centre " + DoubleToString(g_pipe.kalman_x, _Digits) +
-      "  hw " + DoubleToString(g_pipe.half_width, _Digits) + "\n" +
-      "touch " + IntegerToString(g_pipe.touch_count) +
-      "  up " + IntegerToString(g_pipe.n_break_up) +
-      "  dn " + IntegerToString(g_pipe.n_break_dn) +
-      "  bounce " + IntegerToString(g_pipe.n_bounce) +
-      "  cens " + IntegerToString(g_pipe.n_censored) + "\n" +
-      ((InpStrategy == B100_STRAT_BOX_M30)
-         ? ("BOX  " + DoubleToString(g_box.low, _Digits) + " — " + DoubleToString(g_box.high, _Digits) +
-            "  H=" + DoubleToString(g_box.height, _Digits) +
-            "  n=" + IntegerToString(g_box.bars) +
-            "  " + (g_box.state == B100_BOX_ARMED ? "ARMED" : "SCAN") + "\n" +
-            "BUY STOP " + DoubleToString(g_box.buy_stop, _Digits) +
-            "  SELL STOP " + DoubleToString(g_box.sell_stop, _Digits) +
-            "  boxes " + IntegerToString(g_box.n_boxes) +
-            "  fail " + IntegerToString(g_box.n_fail) + "\n")
-         : "") +
-      "issued " + B100ActionName(g_decision.action) + "  " + g_decision.reason + "\n" +
-      "hypo   " + B100ActionName(g_decision.hypothetical) + "  SafeEV " + DoubleToString(g_decision.safe_ev, 3) + "\n" +
-      "risk   " + g_risk_code + "\n" +
-      "shadow " + (g_shadow.open ? "OPEN" : "flat") +
-      "  pnl " + DoubleToString(g_shadow.realized, 2) +
-      "  n " + IntegerToString(g_shadow.trades) + "\n" +
-      (g_last_event == "" ? "event  —" : ("event  " + g_last_event)) +
-      (g_mode.block_reason == "" ? "" : ("\nblock  " + g_mode.block_reason));
-
-   Comment(text);
-   B100PaintSignalLabel();
+   Comment("");
+   B100PaintHud();
   }
 
 void B100PaintSignalLabel()
