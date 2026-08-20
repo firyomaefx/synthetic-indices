@@ -1,5 +1,5 @@
 #property copyright "BREAK100"
-#property version   "1.62"
+#property version   "1.63"
 #property description "Observe/Shadow. Visual pause box + tick OCO. No orders."
 
 #include <Break100/Channel.mqh>
@@ -910,8 +910,12 @@ void B100MarkBoxSignal(const int dir, const double price)
   {
    if(!InpDrawArrows)
       return;
-   const datetime t = iTime(_Symbol, PERIOD_M30, 1);
-   const string name = "B100_box_ev_" + IntegerToString((int)t);
+   // OCO fills on the live tick (bar 0). Bar 1 is the previous closed M30 — that looked lagged.
+   datetime bar0 = iTime(_Symbol, PERIOD_M30, 0);
+   if(bar0 <= 0)
+      bar0 = TimeCurrent();
+   const datetime t = TimeCurrent();
+   const string name = "B100_box_ev_" + IntegerToString((int)bar0);
    if(ObjectFind(0, name) >= 0)
       ObjectDelete(0, name);
    ObjectCreate(0, name, OBJ_ARROW, 0, t, price);
