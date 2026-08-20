@@ -1,5 +1,5 @@
 #property copyright "BREAK100"
-#property version   "1.74"
+#property version   "1.75"
 #property description "Observe/Shadow/DEMO_AUTO(demo only). Live locked. No profit claim."
 
 #include <Break100/Channel.mqh>
@@ -1008,7 +1008,7 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when)
       ObjectDelete(0, arr);
    ObjectCreate(0, arr, kind, 0, t, price);
    ObjectSetInteger(0, arr, OBJPROP_COLOR, clr);
-   ObjectSetInteger(0, arr, OBJPROP_WIDTH, 1);
+   ObjectSetInteger(0, arr, OBJPROP_WIDTH, 4);
    ObjectSetInteger(0, arr, OBJPROP_ANCHOR, (dir > 0) ? ANCHOR_TOP : ANCHOR_BOTTOM);
    ObjectSetInteger(0, arr, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, arr, OBJPROP_HIDDEN, false);
@@ -1023,7 +1023,7 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when)
    ObjectCreate(0, ln, OBJ_TREND, 0, t0, price, t, price);
    ObjectSetInteger(0, ln, OBJPROP_COLOR, clr);
    ObjectSetInteger(0, ln, OBJPROP_STYLE, STYLE_SOLID);
-   ObjectSetInteger(0, ln, OBJPROP_WIDTH, 2);
+   ObjectSetInteger(0, ln, OBJPROP_WIDTH, 3);
    ObjectSetInteger(0, ln, OBJPROP_RAY_RIGHT, false);
    ObjectSetInteger(0, ln, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, ln, OBJPROP_HIDDEN, false);
