@@ -1,5 +1,5 @@
 #property copyright "BREAK100"
-#property version   "1.64"
+#property version   "1.65"
 #property description "Observe/Shadow. Pre-break capture + visual box OCO. No orders."
 
 #include <Break100/Channel.mqh>
@@ -112,6 +112,7 @@ string          g_signal     = "WAIT";
 string          g_signal_note= "warmup";
 string          g_last_alert = "";
 int             g_signal_seq = 0;
+datetime        g_last_learn_bar = 0;
 bool            g_skin_on    = false;
 color           g_old_bg, g_old_fg, g_old_grid, g_old_up, g_old_dn, g_old_bull, g_old_bear, g_old_ask, g_old_bid, g_old_vol;
 bool            g_old_show_grid, g_old_show_vol, g_old_show_ohlc, g_old_show_ask;
@@ -339,10 +340,15 @@ void OnTick()
      }
    if(labeled != "")
      {
-      B100LearnerObserve(g_learner, learn_side, labeled, learn_mfe, learn_mae, learn_hw);
-      B100LearnerSave(g_learner);
-      if(InpStrategy == B100_STRAT_BOX_M30)
-         B100CaptureOutcome(g_capture, g_box, labeled, bid, ask);
+      const bool fresh = (InpStrategy != B100_STRAT_BOX_M30 || g_box.armed_bar != g_last_learn_bar);
+      if(fresh)
+        {
+         B100LearnerObserve(g_learner, learn_side, labeled, learn_mfe, learn_mae, learn_hw);
+         B100LearnerSave(g_learner);
+         if(InpStrategy == B100_STRAT_BOX_M30)
+            B100CaptureOutcome(g_capture, g_box, labeled, bid, ask);
+         g_last_learn_bar = g_box.armed_bar;
+        }
      }
    B100UpdateLines();
    B100PaintLevels();

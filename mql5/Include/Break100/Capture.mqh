@@ -32,6 +32,7 @@ struct B100Capture
    ulong        setup_n;
    ulong        outcome_n;
    uint         last_flush_ms;
+   uint         last_reopen_ms;
    int          buf_n;
    B100TickRow  buf[B100_TICK_BUF];
   };
@@ -163,6 +164,7 @@ void B100CaptureInit(B100Capture &c, const bool on)
    c.outcome_n = 0;
    c.buf_n = 0;
    c.last_flush_ms = GetTickCount();
+   c.last_reopen_ms = GetTickCount();
    for(int i = 0; i < B100_CAP_TFS; i++)
      {
       c.bar_fh[i] = INVALID_HANDLE;
@@ -248,6 +250,12 @@ void B100CaptureOnTick(B100Capture &c)
    const uint now = GetTickCount();
    if(c.buf_n >= B100_FLUSH_TICKS || (now - c.last_flush_ms) >= B100_FLUSH_MS)
       B100CapFlushTicks(c);
+   if((now - c.last_reopen_ms) >= 30000)
+     {
+      B100CapFlushTicks(c);
+      B100CapOpenTicks(c);
+      c.last_reopen_ms = now;
+     }
    for(int i = 0; i < B100_CAP_TFS; i++)
       B100CapWriteClosedBar(c, i);
   }

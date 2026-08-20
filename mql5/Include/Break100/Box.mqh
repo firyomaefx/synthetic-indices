@@ -54,6 +54,7 @@ struct B100Box
    B100BoxHist          hist[B100_BOX_HIST];
    int                  hist_n;
    bool                 just_armed;   // true for one tick after SCAN→ARMED (pre-break snapshot)
+   datetime             lock_bar;     // do not re-arm until a newer M30 has closed
   };
 
 void B100BoxInit(B100Box &b)
@@ -233,6 +234,7 @@ string B100BoxOnTick(B100Box &b,
          b.last_mfe   = 0.0;
          b.last_mae   = -b.height;
          b.n_fail++;
+         b.lock_bar = closed;
          b.state = B100_BOX_SCAN;
          b.ready = false;
          return b.last_label;
@@ -245,6 +247,7 @@ string B100BoxOnTick(B100Box &b,
          b.last_mfe   = ask - b.buy_stop;
          b.last_mae   = 0.0;
          b.n_break_up++;
+         b.lock_bar = closed;
          b.state = B100_BOX_SCAN;
          return b.last_label;
         }
@@ -256,6 +259,7 @@ string B100BoxOnTick(B100Box &b,
          b.last_mfe   = b.sell_stop - bid;
          b.last_mae   = 0.0;
          b.n_break_dn++;
+         b.lock_bar = closed;
          b.state = B100_BOX_SCAN;
          return b.last_label;
         }
@@ -265,6 +269,7 @@ string B100BoxOnTick(B100Box &b,
          b.last_side  = 0;
          b.last_hw    = b.height;
          b.n_fail++;
+         b.lock_bar = closed;
          b.state = B100_BOX_SCAN;
          b.ready = false;
          return b.last_label;
@@ -272,10 +277,21 @@ string B100BoxOnTick(B100Box &b,
       return "";
      }
 
+   if(closed != 0 && b.lock_bar != 0 && closed <= b.lock_bar)
+     {
+      b.ready = false;
+      return "";
+     }
+
    double hi, lo, atr;
    datetime t0, t1;
    int n = 0;
    if(!B100FindClusterAt(tf, 1, min_bars, max_bars, atr_period, atr_max, hi, lo, t0, t1, n, atr))
+     {
+      b.ready = false;
+      return "";
+     }
+   if(t1 != 0 && t1 <= b.lock_bar)
      {
       b.ready = false;
       return "";
