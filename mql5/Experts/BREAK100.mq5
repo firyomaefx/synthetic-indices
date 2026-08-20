@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.63"
-#property description "Observe/Shadow. Visual pause box + tick OCO. No orders."
+#property version   "1.64"
+#property description "Observe/Shadow. Pre-break capture + visual box OCO. No orders."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -9,6 +9,7 @@
 #include <Break100/Shadow.mqh>
 #include <Break100/Learner.mqh>
 #include <Break100/Box.mqh>
+#include <Break100/Capture.mqh>
 
 input ENUM_B100_MODE InpMode           = B100_OBSERVE; // Operating mode (Demo/Live are rejected)
 input ENUM_B100_STRAT InpStrategy      = B100_STRAT_BOX_M30; // CHANNEL tick band, or M30 box breakout
@@ -47,6 +48,7 @@ input bool           InpAttachIndicator= true;         // Attach visual indicato
 input bool           InpDrawArrows     = true;         // Arrows on buy/sell/exit
 input bool           InpDrawLevels     = true;         // Draw entry/SL/TP lines
 input bool           InpAlerts         = true;         // Popup on BUY/SELL/EXIT
+input bool           InpCapture        = true;         // Ticks + M1-H4 + ARM setup before breakout
 
 #define IND_SHORT  "BREAK100 Channel"
 #define LINE_MID   "B100_centre"
@@ -99,6 +101,7 @@ B100Levels      g_levels;
 B100Learner     g_learner;
 B100LearnPolicy g_policy;
 B100Box         g_box;
+B100Capture     g_capture;
 int             g_ind_handle = INVALID_HANDLE;
 bool            g_ready      = false;
 datetime        g_last_bar   = 0;
@@ -140,6 +143,7 @@ int OnInit()
    B100LearnerInit(g_learner);
    B100BoxInit(g_box);
    B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxAtrMax);
+   B100CaptureInit(g_capture, InpCapture);
    B100LearnerLoad(g_learner);
    if(B100PolicyLoad(g_policy))
      {
@@ -222,12 +226,18 @@ void OnDeinit(const int reason)
    ObjectsDeleteAll(0, "B100_hx_");
    ObjectsDeleteAll(0, "B100_box");
    B100LearnerSave(g_learner);
+   B100CaptureDeinit(g_capture);
    B100RestoreChartSkin();
    Comment("");
   }
 
 void OnTick()
   {
+   const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   const double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   if(g_ready && bid > 0.0 && ask >= bid)
+      B100CaptureOnTick(g_capture);
+
    if(!g_ready || g_mode.health != B100_HEALTHY)
      {
       g_signal = "STAND_DOWN";
@@ -236,8 +246,6 @@ void OnTick()
       return;
      }
 
-   const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   const double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    if(bid <= 0.0 || ask <= 0.0 || ask < bid)
      {
       B100FailClosed(g_mode, "TICK_INVALID");
@@ -256,6 +264,11 @@ void OnTick()
      {
       labeled = B100BoxOnTick(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars,
                               InpBoxAtrPeriod, InpBoxAtrMax, InpBoxTimeout, bid, ask);
+      if(g_box.just_armed)
+        {
+         B100CaptureSetup(g_capture, g_box, bid, ask);
+         g_box.just_armed = false;
+        }
       if(labeled != "")
         {
          g_last_event = labeled;
@@ -327,8 +340,9 @@ void OnTick()
    if(labeled != "")
      {
       B100LearnerObserve(g_learner, learn_side, labeled, learn_mfe, learn_mae, learn_hw);
-      if((g_learner.n % 8) == 0)
-         B100LearnerSave(g_learner);
+      B100LearnerSave(g_learner);
+      if(InpStrategy == B100_STRAT_BOX_M30)
+         B100CaptureOutcome(g_capture, g_box, labeled, bid, ask);
      }
    B100UpdateLines();
    B100PaintLevels();

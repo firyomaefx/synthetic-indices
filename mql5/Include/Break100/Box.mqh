@@ -53,6 +53,7 @@ struct B100Box
    double               atr;
    B100BoxHist          hist[B100_BOX_HIST];
    int                  hist_n;
+   bool                 just_armed;   // true for one tick after SCAN→ARMED (pre-break snapshot)
   };
 
 void B100BoxInit(B100Box &b)
@@ -295,6 +296,7 @@ string B100BoxOnTick(B100Box &b,
    b.armed_bar = closed;
    b.wait_bars = 0;
    b.n_boxes++;
+   b.just_armed = true;
    B100BoxPushHist(b, t0, t1, hi, lo);
    return "";
   }
