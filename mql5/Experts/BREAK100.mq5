@@ -1,5 +1,5 @@
 #property copyright "BREAK100"
-#property version   "1.72"
+#property version   "1.73"
 #property description "Observe/Shadow/DEMO_AUTO(demo only). Live locked. No profit claim."
 
 #include <Break100/Channel.mqh>
@@ -607,9 +607,9 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
          note = "BREAKOUT_UP but " + (box_mode ? g_risk_code : g_decision.reason);
         }
       g_signal_seq = g_pipe.seq;
-      if(box_mode && next == "BUY")
-         B100MarkBoxSignal(1, mid);
-      else if(!box_mode)
+      if(box_mode)
+         B100MarkBoxSignal(1, (g_levels.valid ? g_levels.entry : mid));
+      else
          B100MarkEvent(labeled, mid);
      }
    else if(labeled == "BREAKOUT_DOWN")
@@ -634,9 +634,9 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
          note = "BREAKOUT_DOWN but " + (box_mode ? g_risk_code : g_decision.reason);
         }
       g_signal_seq = g_pipe.seq;
-      if(box_mode && next == "SELL")
-         B100MarkBoxSignal(-1, mid);
-      else if(!box_mode)
+      if(box_mode)
+         B100MarkBoxSignal(-1, (g_levels.valid ? g_levels.entry : mid));
+      else
          B100MarkEvent(labeled, mid);
      }
    else if(labeled == "BOUNCE" || labeled == "CENSORED_OR_AMBIGUOUS")
@@ -959,22 +959,41 @@ void B100MarkBoxSignal(const int dir, const double price)
   {
    if(!InpDrawArrows)
       return;
-   // OCO fills on the live tick (bar 0). Bar 1 is the previous closed M30 — that looked lagged.
-   datetime bar0 = iTime(_Symbol, PERIOD_M30, 0);
-   if(bar0 <= 0)
-      bar0 = TimeCurrent();
    const datetime t = TimeCurrent();
-   const string name = "B100_box_ev_" + IntegerToString((int)bar0);
-   if(ObjectFind(0, name) >= 0)
-      ObjectDelete(0, name);
-   ObjectCreate(0, name, OBJ_ARROW, 0, t, price);
-   ObjectSetInteger(0, name, OBJPROP_ARROWCODE, (dir > 0) ? 233 : 234);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, (dir > 0) ? CLR_BUY : CLR_SELL);
-   ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, name, OBJPROP_BACK, false);
-   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_PERIOD_M30);
+   const int step = PeriodSeconds(PERIOD_M30);
+   const datetime t0 = t - 2 * step;
+   const string id = IntegerToString((int)(g_box.armed_bar > 0 ? g_box.armed_bar : t));
+   const string arr = "B100_jn_arr_" + id;
+   const string ln  = "B100_jn_ln_" + id;
+   const color clr = (dir > 0) ? CLR_BUY : CLR_SELL;
+   const ENUM_OBJECT kind = (dir > 0) ? OBJ_ARROW_BUY : OBJ_ARROW_SELL;
+
+   if(ObjectFind(0, arr) >= 0)
+      ObjectDelete(0, arr);
+   ObjectCreate(0, arr, kind, 0, t, price);
+   ObjectSetInteger(0, arr, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, arr, OBJPROP_WIDTH, 1);
+   ObjectSetInteger(0, arr, OBJPROP_ANCHOR, (dir > 0) ? ANCHOR_TOP : ANCHOR_BOTTOM);
+   ObjectSetInteger(0, arr, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, arr, OBJPROP_HIDDEN, false);
+   ObjectSetInteger(0, arr, OBJPROP_BACK, false);
+   ObjectSetInteger(0, arr, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+   ObjectSetString(0, arr, OBJPROP_TOOLTIP,
+                   (dir > 0 ? "BUY " : "SELL ") + TimeToString(t, TIME_DATE | TIME_MINUTES) +
+                   "  " + DoubleToString(price, _Digits));
+
+   if(ObjectFind(0, ln) >= 0)
+      ObjectDelete(0, ln);
+   ObjectCreate(0, ln, OBJ_TREND, 0, t0, price, t, price);
+   ObjectSetInteger(0, ln, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, ln, OBJPROP_STYLE, STYLE_SOLID);
+   ObjectSetInteger(0, ln, OBJPROP_WIDTH, 2);
+   ObjectSetInteger(0, ln, OBJPROP_RAY_RIGHT, false);
+   ObjectSetInteger(0, ln, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, ln, OBJPROP_HIDDEN, false);
+   ObjectSetInteger(0, ln, OBJPROP_BACK, false);
+   ObjectSetInteger(0, ln, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+   ChartRedraw(0);
   }
 
 void B100PaintHud()
