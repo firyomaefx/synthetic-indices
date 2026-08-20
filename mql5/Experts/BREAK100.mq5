@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.65"
-#property description "Observe/Shadow. Pre-break capture + visual box OCO. No orders."
+#property version   "1.70"
+#property description "Observe/Shadow/DEMO_AUTO(demo only). Live locked. No profit claim."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -10,8 +10,10 @@
 #include <Break100/Learner.mqh>
 #include <Break100/Box.mqh>
 #include <Break100/Capture.mqh>
+#include <Break100/Signal.mqh>
+#include <Break100/DemoExec.mqh>
 
-input ENUM_B100_MODE InpMode           = B100_OBSERVE; // Operating mode (Demo/Live are rejected)
+input ENUM_B100_MODE InpMode           = B100_OBSERVE; // OBSERVE/SHADOW/DEMO(demo account). LIVE rejected.
 input ENUM_B100_STRAT InpStrategy      = B100_STRAT_BOX_M30; // CHANNEL tick band, or M30 box breakout
 
 input ENUM_TIMEFRAMES InpBoxTF         = PERIOD_M30;   // Box timeframe
@@ -113,6 +115,7 @@ string          g_signal_note= "warmup";
 string          g_last_alert = "";
 int             g_signal_seq = 0;
 datetime        g_last_learn_bar = 0;
+datetime        g_last_exec_bar  = 0;
 bool            g_skin_on    = false;
 color           g_old_bg, g_old_fg, g_old_grid, g_old_up, g_old_dn, g_old_bull, g_old_bear, g_old_ask, g_old_bid, g_old_vol;
 bool            g_old_show_grid, g_old_show_vol, g_old_show_ohlc, g_old_show_ask;
@@ -315,11 +318,19 @@ void OnTick()
               B100BrokerOrderIntentPermitted(g_mode));
 
    B100RiskSnap snap;
+   const double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+   const double balance = AccountInfoDouble(ACCOUNT_BALANCE);
    snap.loss_24h         = 0.0;
    snap.loss_week        = 0.0;
-   snap.drawdown         = 0.0;
-   snap.open_for_symbol  = g_shadow.open ? 1 : 0;
+   snap.drawdown         = (balance > 0.0 && equity < balance) ? (balance - equity) / balance : 0.0;
+   snap.open_for_symbol  = B100CountMagicPositions();
+   if(snap.open_for_symbol == 0 && g_shadow.open)
+      snap.open_for_symbol = 1;
    g_risk_code = B100RiskGate(snap);
+   if(g_mode.mode == B100_DEMO &&
+      g_risk_code != "RISK_GATE_PASSED" &&
+      g_risk_code != "MAX_POSITION_REACHED")
+      B100Halt(g_mode, g_risk_code);
 
    const bool shadow_was_open = g_shadow.open;
    if(g_mode.mode == B100_SHADOW && InpShadowLedger)
@@ -348,6 +359,27 @@ void OnTick()
          if(InpStrategy == B100_STRAT_BOX_M30)
             B100CaptureOutcome(g_capture, g_box, labeled, bid, ask);
          g_last_learn_bar = g_box.armed_bar;
+        }
+      if((g_signal == "BUY" || g_signal == "SELL") && g_levels.valid)
+        {
+         const string sid = "B100-" + IntegerToString((int)g_box.armed_bar);
+         const double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+         const double lots = B100StopRiskLots(eq, InpRiskFraction, g_levels.entry, g_levels.sl);
+         const double risk_amt = eq * B100ClampRiskFraction(InpRiskFraction);
+         const double rr = (g_levels.r > 0.0) ? MathAbs(g_levels.tp1 - g_levels.entry) / g_levels.r : 0.0;
+         B100WriteSignalJson(g_signal, g_levels.entry, g_levels.sl, g_levels.tp1, g_levels.tp2,
+                             lots, risk_amt, rr, g_decision.safe_ev, g_signal_note, sid, "BOX_OCO_UCB_v1");
+         if(B100BrokerOrderIntentPermitted(g_mode) && g_box.armed_bar != g_last_exec_bar && lots > 0.0)
+           {
+            string err = "";
+            const int dir = (g_signal == "BUY") ? 1 : -1;
+            if(B100DemoSend(dir, g_levels.sl, g_levels.tp1, lots, sid, err))
+               g_last_exec_bar = g_box.armed_bar;
+            else if(err != "MAX_POSITION_REACHED" && err != "EA_TRADE_DISABLED" && err != "TERMINAL_TRADE_DISABLED")
+               B100Halt(g_mode, err);
+            else
+               Print("B100 DemoExec skipped ", err);
+           }
         }
      }
    B100UpdateLines();

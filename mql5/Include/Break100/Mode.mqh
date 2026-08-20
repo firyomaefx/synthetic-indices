@@ -1,14 +1,17 @@
 #ifndef BREAK100_MODE_MQH
 #define BREAK100_MODE_MQH
 
-// Broker-independent mode contract. Observe/Shadow never permit OrderSend.
+// Observe/Shadow never OrderSend. DEMO only on a verified demo account.
+// LIVE is always rejected in source.
 
 enum ENUM_B100_MODE
   {
    B100_OBSERVE = 0,
    B100_SHADOW  = 1,
-   B100_DEMO    = 2,  // rejected at init — G4 NO-GO
-   B100_LIVE    = 3   // rejected at init — G5 NO-GO
+   B100_DEMO    = 2,  // DEMO_AUTO — demo account only
+   B100_LIVE    = 3,  // always rejected
+   B100_OFF     = 4,
+   B100_HALTED  = 5
   };
 
 enum ENUM_B100_HEALTH
@@ -37,8 +40,10 @@ string B100ModeName(const ENUM_B100_MODE mode)
      {
       case B100_OBSERVE: return "OBSERVE";
       case B100_SHADOW:  return "SHADOW";
-      case B100_DEMO:    return "DEMO";
+      case B100_DEMO:    return "DEMO_AUTO";
       case B100_LIVE:    return "LIVE";
+      case B100_OFF:     return "OFF";
+      case B100_HALTED:  return "HALTED";
      }
    return "UNKNOWN";
   }
@@ -55,10 +60,21 @@ bool B100IsRealAccount(void)
    return (trade_mode == ACCOUNT_TRADE_MODE_REAL);
   }
 
-// Source code never enables Demo/Live. Invalid requests fail closed to Observe.
 string B100ApplyRequestedMode(B100Mode &m, const ENUM_B100_MODE requested)
   {
    B100ModeInit(m);
+   if(requested == B100_OFF)
+     {
+      m.mode = B100_OFF;
+      return "OFF: no execution, capture may still run";
+     }
+   if(requested == B100_HALTED)
+     {
+      m.mode         = B100_HALTED;
+      m.health       = B100_FAULT;
+      m.block_reason = "HALTED";
+      return "HALTED";
+     }
    if(requested == B100_OBSERVE)
       return "";
    if(requested == B100_SHADOW)
@@ -68,9 +84,14 @@ string B100ApplyRequestedMode(B100Mode &m, const ENUM_B100_MODE requested)
      }
    if(requested == B100_DEMO)
      {
-      m.mode         = B100_OBSERVE;
-      m.block_reason = "DEMO_GATE_MISSING";
-      return "DEMO_GATE_MISSING: G4 evidence absent — forced OBSERVE";
+      if(!B100IsDemoAccount())
+        {
+         m.mode         = B100_OBSERVE;
+         m.block_reason = "DEMO_ACCOUNT_REQUIRED";
+         return "DEMO_ACCOUNT_REQUIRED: real/unknown account forced OBSERVE — no OrderSend";
+        }
+      m.mode = B100_DEMO;
+      return "DEMO_AUTO: demo account only, SL required, Observe policy BOX_OCO_UCB";
      }
    m.mode         = B100_OBSERVE;
    m.block_reason = "LIVE_DISABLED";
@@ -79,15 +100,29 @@ string B100ApplyRequestedMode(B100Mode &m, const ENUM_B100_MODE requested)
 
 void B100FailClosed(B100Mode &m, const string reason)
   {
-   m.mode         = B100_OBSERVE;
    m.health       = B100_FAULT;
    m.block_reason = reason;
+   if(m.mode == B100_DEMO)
+      m.mode = B100_HALTED;
   }
 
-// Time-independent intent: never true in this EA (no execution adapter linked).
+void B100Halt(B100Mode &m, const string reason)
+  {
+   m.mode         = B100_HALTED;
+   m.health       = B100_FAULT;
+   m.block_reason = reason;
+   Print("B100 HALTED ", reason);
+  }
+
 bool B100BrokerOrderIntentPermitted(const B100Mode &m)
   {
-   return false;
+   if(m.health != B100_HEALTHY)
+      return false;
+   if(m.mode != B100_DEMO)
+      return false;
+   if(!B100IsDemoAccount())
+      return false;
+   return true;
   }
 
 #endif

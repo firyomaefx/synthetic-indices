@@ -8,10 +8,14 @@ The search covered `OrderSend`, `OrderSendAsync`, `OrderCheck`,
 `MqlTradeRequest`, `CTrade`, trade actions, position open/close, `Buy`, `Sell`,
 MetaTrader5 bindings, and `order_send` patterns.
 
-## Finding
+## Finding (updated 2026-08-21)
 
-No project source existed and no broker-order keyword or submission path was
-found. Consequently, an accidental Live order is unreachable in this baseline.
+`mql5/Include/Break100/DemoExec.mqh` contains `OrderSend` for **DEMO_AUTO**.
+Runtime guards: `B100BrokerOrderIntentPermitted` requires `B100_DEMO` **and**
+`ACCOUNT_TRADE_MODE_DEMO`. Real accounts requesting DEMO are forced OBSERVE.
+LIVE remains `LIVE_DISABLED` in `Mode.mqh` with no Live OrderSend path.
+
+Observe/Shadow still must not send: intent is false unless mode is DEMO.
 
 This is **not** evidence that Observe or Shadow are structurally isolated. Those
 modes do not yet exist. Structural isolation requires separate dependency
@@ -30,7 +34,9 @@ broker execution adapter.
 
 ## Gate conclusion
 
-- Accidental order path in the audited baseline: `NONE FOUND`.
-- Implemented Observe/Shadow isolation: `NOT YET PROVEN`.
-- Demo/Live readiness: `NO-GO`.
+- Accidental Live order path: `NONE` (LIVE still source-disabled).
+- Demo OrderSend path: `PRESENT` in DemoExec, demo-account gated.
+- Observe/Shadow isolation: runtime intent false; DemoExec is still linked into the EA binary.
+- Live readiness: `NO-GO`.
+- Demo auto: `LIMITED GO` pending demo-account evidence pack (not yet run in this workspace).
 

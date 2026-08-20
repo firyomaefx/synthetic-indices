@@ -1,28 +1,33 @@
 # Current-State and Capability Report
 
+Updated 2026-08-21 after v1.70 DEMO_AUTO adapter (demo accounts only).
+
 ## Repository baseline
 
-Python G1 safety kernel (mode, SafeEV, risk) is present. MQL5 Observe/Shadow
-package v1.41 is added under `mql5/`. There is still no broker order path.
+Python G1 safety kernel (mode, SafeEV, risk) plus MQL5 Observe/Shadow/DEMO_AUTO.
+Live remains source-locked. No profitability claim.
 
 ## Capability map
 
 | Capability | Evidence | State |
 |---|---|---|
-| Git version control | GitHub `firyomaefx/synthetic-indices` | Available |
-| Python G1 kernel | `src/break100` mode / SafeEV / risk + tests | Implemented, fail-closed |
-| MQL5 Observe EA | `mql5/Experts/BREAK100.mq5` v1.41 | Source ready; compile in MetaEditor (no `.ex5` in repo) |
-| Channel indicator | `mql5/Indicators/BREAK100_Channel.mq5` | Visual only, no execution |
-| Causal SL/TP learner | `mql5/Include/Break100/Learner.mqh` | UCB-1 + MFE/MAE quantiles, min 16 labels |
-| Offline trainer | `tools/break100_trainer.c` | REINFORCE + walk-forward; Windows exe is a build artifact |
-| Tick collection store | No durable tick warehouse | Absent |
-| Statistical G2 edge pack | No walk-forward evidence pack | NO-GO |
-| Deep ML/RL on ticks | Bandit/REINFORCE on labels only | Not G3 GO |
-| Shadow/Demo/Live execution | Observe/Shadow only; Demo/Live rejected at init | NO-GO |
-| Profitability evidence | Explicitly not claimed | Absent |
+| Git | GitHub `firyomaefx/synthetic-indices` | Available |
+| Python G1 kernel | `src/break100` + pytest | Implemented |
+| Offline walk-forward | `src/break100/research/walkforward.py` | Unique-event rates only; no PnL GO |
+| MQL5 EA | `BREAK100.mq5` v1.70 | Observe/Shadow/DEMO_AUTO |
+| Capture | ticks, M1–H4, ARM setup, outcome | Pre-break setup; 1.65 cooldown |
+| Box OCO | virtual stops; demo `OrderSend` if DEMO+demo account | Real account refused |
+| Mode | DEMO requires `ACCOUNT_TRADE_MODE_DEMO`; LIVE always `LIVE_DISABLED` | Live NO-GO |
+| Signal JSON | `BREAK100_signal_<sym>.jsonl` | Written on BUY/SELL |
+| DemoExec | `DemoExec.mqh` OrderSend, magic 100165, SL required | Runtime demo-only |
+| ML/RL production | UCB + C trainer; no calibrated model registry | Not G3 GO |
+| Walk-forward evidence pack | Absent after-cost OOS | NO-GO for live |
 
-## Current operating truth
+## Operating truth
 
-`OBSERVE` is the executable mode. The EA issues `NO_TRADE` and can print
-hypothetical BUY/SELL with SL/TP1/2/3. Shadow is a virtual ledger only.
-Demo, Live Canary, and Live remain `NO-GO`. Source code cannot enable Live.
+- OBSERVE / SHADOW: no broker orders.
+- DEMO_AUTO: `OrderSend` only when the connected account is **demo** and risk gate passes.
+- Real account + InpMode=DEMO → forced OBSERVE (`DEMO_ACCOUNT_REQUIRED`).
+- LIVE input → OBSERVE (`LIVE_DISABLED`).
+- Policy id: `BOX_OCO_UCB_v1`. Not a trained neural net.
+- Decision: **LIMITED GO** for Observe/capture/signals; **NO-GO** for live and for claiming ML edge.
