@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.80"
-#property description "M30 box OCO stops. Shadow simulates. DEMO_AUTO demo only. Live locked."
+#property version   "1.81"
+#property description "M30 box OCO. 6h ML/RL Telegram status. DEMO_AUTO demo only. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -53,6 +53,7 @@ input bool           InpDrawLevels     = true;         // Draw entry/SL/TP lines
 input bool           InpAlerts         = true;         // Popup on BUY/SELL/EXIT
 input bool           InpCapture        = true;         // Ticks + M1-H4 + ARM setup before breakout
 input bool           InpTelegram       = true;         // Channel alerts: WATCH/FILL/CANCEL/CLOSE
+input int            InpStatusHours    = 6;            // ML/RL status to Telegram (0=off)
 
 #define IND_SHORT  "BREAK100 Channel"
 #define LINE_MID   "B100_centre"
@@ -155,6 +156,10 @@ void B100TelegramWatch(void);
 void B100TelegramFill(const int dir, const double px, const bool sibling_deleted);
 void B100TelegramCancel(const string reason);
 void B100TelegramClose(const string why, const int dir, const double entry, const double exit_px, const double sl, const double tp, const double pts);
+datetime B100StatusReadGmt(void);
+void     B100StatusWriteGmt(const datetime t);
+void     B100MaybeStatus(void);
+void     B100TelegramStatus(void);
 
 int OnInit()
   {
@@ -234,11 +239,19 @@ int OnInit()
       B100RescaleJournalMarks();
      }
    B100PaintPanel();
+   EventSetTimer(60);
+   B100MaybeStatus();
    return INIT_SUCCEEDED;
+  }
+
+void OnTimer()
+  {
+   B100MaybeStatus();
   }
 
 void OnDeinit(const int reason)
   {
+   EventKillTimer();
    if(reason == REASON_REMOVE || reason == REASON_CHARTCLOSE || reason == REASON_CLOSE)
       B100CancelBoxOco("EA removed");
    if(g_ind_handle != INVALID_HANDLE)
@@ -579,6 +592,82 @@ void B100TelegramClose(const string why, const int dir, const double entry, cons
    const int ip = (int)MathRound(pts);
    msg += (ip >= 0 ? "+" : "") + IntegerToString(ip) + " pts";
    B100Tg(msg);
+  }
+
+datetime B100StatusReadGmt(void)
+  {
+   const int fh = FileOpen("BREAK100_tg_status.txt", FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
+   if(fh == INVALID_HANDLE)
+      return 0;
+   string s = FileReadString(fh);
+   FileClose(fh);
+   StringTrimLeft(s);
+   StringTrimRight(s);
+   return (datetime)StringToInteger(s);
+  }
+
+void B100StatusWriteGmt(const datetime t)
+  {
+   const int fh = FileOpen("BREAK100_tg_status.txt", FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(fh == INVALID_HANDLE)
+      return;
+   FileWriteString(fh, IntegerToString((int)t));
+   FileClose(fh);
+  }
+
+void B100TelegramStatus(void)
+  {
+   const bool policy_file = FileIsExist(B100PolicyFileName(), FILE_COMMON);
+   string last_m30 = "-";
+   if(g_capture.last_bar_time[3] > 0)
+      last_m30 = TimeToString(g_capture.last_bar_time[3], TIME_DATE | TIME_MINUTES);
+   string box_line = "scanning";
+   if(g_box.ready && g_box.state == B100_BOX_ARMED)
+      box_line = "WATCH BUY " + DoubleToString(g_box.buy_stop, _Digits) +
+                 "  SELL " + DoubleToString(g_box.sell_stop, _Digits);
+   else if(g_last_event != "")
+      box_line = "last " + g_last_event;
+   else if(g_signal != "")
+      box_line = g_signal;
+
+   string msg = "BREAK100 ML/RL STATUS  " + _Symbol + "\n";
+   msg += "gmt " + TimeToString(TimeGMT(), TIME_DATE | TIME_MINUTES) + "\n";
+   msg += "mode " + B100ModeName(g_mode.mode);
+   msg += "  health " + (g_mode.health == B100_HEALTHY ? "HEALTHY" : "FAULT");
+   msg += "  telegram " + (g_tg_ok && InpTelegram ? "ON" : "OFF") + "\n";
+   msg += "capture ticks=" + IntegerToString((int)g_capture.tick_count);
+   msg += "  written=" + IntegerToString((int)g_capture.tick_written) + "\n";
+   msg += "  setup=" + IntegerToString((int)g_capture.setup_n);
+   msg += "  outcome=" + IntegerToString((int)g_capture.outcome_n);
+   msg += "  last M30=" + last_m30 + "\n";
+   msg += "learner n=" + IntegerToString(g_learner.n) + "/" + IntegerToString(B100_LEARN_MAX);
+   msg += "  policy=" + (g_policy.source == "" ? "none" : g_policy.source) + "\n";
+   msg += "  arm=" + (g_policy.arm_id == "" ? "-" : g_policy.arm_id);
+   msg += "  SL=" + DoubleToString(g_policy.sl_r, 2) + "R";
+   msg += "  TP=" + DoubleToString(g_policy.tp1_r, 2) + "/" +
+          DoubleToString(g_policy.tp2_r, 2) + "/" + DoubleToString(g_policy.tp3_r, 2) + "R\n";
+   msg += "offline policy file=" + (policy_file ? "yes" : "no") + "\n";
+   msg += "box session armed=" + IntegerToString(g_box.n_boxes);
+   msg += "  UP=" + IntegerToString(g_box.n_break_up);
+   msg += "  DN=" + IntegerToString(g_box.n_break_dn);
+   msg += "  fail=" + IntegerToString(g_box.n_fail) + "\n";
+   msg += "  " + box_line + "\n";
+   msg += "note: Observe/Shadow data job. No live orders. Not a profit claim.";
+   B100Tg(msg);
+   Print("B100 ML/RL status sent");
+  }
+
+void B100MaybeStatus(void)
+  {
+   if(!InpTelegram || InpStatusHours <= 0 || !g_tg_ok)
+      return;
+   const datetime now = TimeGMT();
+   const datetime last = B100StatusReadGmt();
+   const int gap = InpStatusHours * 3600;
+   if(last != 0 && (now - last) < gap)
+      return;
+   B100StatusWriteGmt(now);
+   B100TelegramStatus();
   }
 
 void B100CancelBoxOco(const string reason)

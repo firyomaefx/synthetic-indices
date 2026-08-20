@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-21 | v1.81 Telegram ML/RL status every 6 hours (capture, learner, box counts). Dedup across charts. Live remains locked. | MQL5 EA Telegram digest | Owner request |
 | 2026-08-21 | v1.80 M30 box OCO: WATCH arms BUY STOP + SELL STOP; first fill deletes the other. Shadow simulates. DEMO_AUTO places broker pendings on demo accounts only. Telegram WATCH/FILL/CANCEL/CLOSE with SL/TP points. Live remains locked. | MQL5 EA + DemoExec pending + Telegram | Owner request |
 | 2026-08-13 | Established Gate G0/G1 project-control baseline | Documentation only | Project charter authority |
 | 2026-08-13 | Added broker-independent operating-mode contract and structural boundary tests | Python G1 safety foundation | Project charter authority |
