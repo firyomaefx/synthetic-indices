@@ -10,10 +10,12 @@ MetaTrader5 bindings, and `order_send` patterns.
 
 ## Finding (updated 2026-08-21)
 
-`mql5/Include/Break100/DemoExec.mqh` contains `OrderSend` for **DEMO_AUTO**.
+`mql5/Include/Break100/DemoExec.mqh` contains `OrderSend` for **DEMO_AUTO**
+(market send for channel; pending BUY_STOP/SELL_STOP OCO for M30 box).
 Runtime guards: `B100BrokerOrderIntentPermitted` requires `B100_DEMO` **and**
 `ACCOUNT_TRADE_MODE_DEMO`. Real accounts requesting DEMO are forced OBSERVE.
 LIVE remains `LIVE_DISABLED` in `Mode.mqh` with no Live OrderSend path.
+Telegram uses WebRequest only; token is not in source.
 
 Observe/Shadow still must not send: intent is false unless mode is DEMO.
 

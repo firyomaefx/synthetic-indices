@@ -40,6 +40,31 @@ int B100CountMagicPositions(void)
    return n;
   }
 
+int B100CountMagicPendings(void)
+  {
+   int n = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      const ulong ticket = OrderGetTicket(i);
+      if(ticket == 0)
+         continue;
+      if(OrderGetString(ORDER_SYMBOL) != _Symbol)
+         continue;
+      if((long)OrderGetInteger(ORDER_MAGIC) != B100_MAGIC)
+         continue;
+      n++;
+     }
+   return n;
+  }
+
+double B100FreezePrice(const double px)
+  {
+   const double tick = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(tick <= 0.0)
+      return NormalizeDouble(px, _Digits);
+   return NormalizeDouble(MathRound(px / tick) * tick, _Digits);
+  }
+
 bool B100DemoSend(const int dir,
                   const double sl,
                   const double tp,
@@ -132,6 +157,135 @@ bool B100DemoSend(const int dir,
          " ", signal_id, " lots=", DoubleToString(lots, 2),
          " sl=", DoubleToString(sl, _Digits),
          " tp=", DoubleToString(tp, _Digits));
+   return true;
+  }
+
+bool B100DemoCancelTicket(const ulong ticket, string &err)
+  {
+   err = "";
+   if(ticket == 0)
+      return true;
+   if(!B100IsDemoAccount())
+     {
+      err = "DEMO_ACCOUNT_REQUIRED";
+      return false;
+     }
+   MqlTradeRequest req;
+   MqlTradeResult res;
+   ZeroMemory(req);
+   ZeroMemory(res);
+   req.action = TRADE_ACTION_REMOVE;
+   req.order  = ticket;
+   ResetLastError();
+   if(!OrderSend(req, res))
+     {
+      err = "CANCEL_FAIL " + IntegerToString((int)res.retcode);
+      return false;
+     }
+   if(res.retcode != TRADE_RETCODE_DONE && res.retcode != TRADE_RETCODE_PLACED)
+     {
+      err = "CANCEL_RETCODE=" + IntegerToString((int)res.retcode);
+      return false;
+     }
+   Print("B100 pending cancel ticket=", ticket);
+   return true;
+  }
+
+void B100DemoCancelAllPendings(void)
+  {
+   string err = "";
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      const ulong ticket = OrderGetTicket(i);
+      if(ticket == 0)
+         continue;
+      if(OrderGetString(ORDER_SYMBOL) != _Symbol)
+         continue;
+      if((long)OrderGetInteger(ORDER_MAGIC) != B100_MAGIC)
+         continue;
+      B100DemoCancelTicket(ticket, err);
+     }
+  }
+
+bool B100DemoPlacePending(const ENUM_ORDER_TYPE typ,
+                          const double price,
+                          const double sl,
+                          const double tp,
+                          const double lots,
+                          const string signal_id,
+                          ulong &ticket,
+                          string &err)
+  {
+   err = "";
+   ticket = 0;
+   if(!B100IsDemoAccount())
+     {
+      err = "DEMO_ACCOUNT_REQUIRED";
+      return false;
+     }
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
+     {
+      err = "TRADE_DISABLED";
+      return false;
+     }
+   if(lots <= 0.0 || price <= 0.0 || sl <= 0.0)
+     {
+      err = "SL_OR_LOTS_INVALID";
+      return false;
+     }
+   if(typ != ORDER_TYPE_BUY_STOP && typ != ORDER_TYPE_SELL_STOP)
+     {
+      err = "PENDING_TYPE";
+      return false;
+     }
+   const double px = B100FreezePrice(price);
+   const double slx = B100FreezePrice(sl);
+   const double tpx = (tp > 0.0) ? B100FreezePrice(tp) : 0.0;
+   if(typ == ORDER_TYPE_BUY_STOP && slx >= px)
+     {
+      err = "SL_NOT_BELOW_BUY_STOP";
+      return false;
+     }
+   if(typ == ORDER_TYPE_SELL_STOP && slx <= px)
+     {
+      err = "SL_NOT_ABOVE_SELL_STOP";
+      return false;
+     }
+
+   MqlTradeRequest req;
+   MqlTradeResult res;
+   ZeroMemory(req);
+   ZeroMemory(res);
+   req.action       = TRADE_ACTION_PENDING;
+   req.symbol       = _Symbol;
+   req.volume       = lots;
+   req.type         = typ;
+   req.price        = px;
+   req.sl           = slx;
+   req.tp           = tpx;
+   req.magic        = B100_MAGIC;
+   req.comment      = signal_id;
+   req.type_time    = ORDER_TIME_GTC;
+   req.type_filling = ORDER_FILLING_RETURN;
+   ResetLastError();
+   if(!OrderSend(req, res))
+     {
+      err = "PENDING_FAIL " + IntegerToString((int)res.retcode) +
+            " last=" + IntegerToString(GetLastError());
+      Print("B100 pending FAIL ", err, " ", EnumToString(typ), " @", DoubleToString(px, _Digits));
+      return false;
+     }
+   if(res.retcode != TRADE_RETCODE_DONE && res.retcode != TRADE_RETCODE_PLACED)
+     {
+      err = "PENDING_RETCODE=" + IntegerToString((int)res.retcode);
+      Print("B100 pending RET ", err);
+      return false;
+     }
+   ticket = res.order;
+   Print("B100 pending ", EnumToString(typ), " ticket=", ticket,
+         " @", DoubleToString(px, _Digits),
+         " sl=", DoubleToString(slx, _Digits),
+         " tp=", DoubleToString(tpx, _Digits));
    return true;
   }
 

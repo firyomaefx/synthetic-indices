@@ -2,7 +2,7 @@
 #define BREAK100_BOX_MQH
 
 // Tight pause (3–8 overlapping M30 bars, range <= k*ATR).
-// Virtual OCO on ticks: BUY STOP above, SELL STOP below. No broker orders.
+// OCO: BUY STOP above, SELL STOP below. Shadow simulates; DEMO_AUTO places both.
 
 enum ENUM_B100_STRAT
   {
@@ -321,9 +321,9 @@ string B100BoxWatchNote(const B100Box &b, const double mid)
   {
    if(b.state != B100_BOX_ARMED || !b.ready)
       return "scanning for a tight M30 pause (3–8 overlapping bars)";
-   return "OCO armed  BUY STOP " + DoubleToString(b.buy_stop, _Digits) +
+   return "OCO  BUY STOP " + DoubleToString(b.buy_stop, _Digits) +
           "  SELL STOP " + DoubleToString(b.sell_stop, _Digits) +
-          "  — EA will not send these";
+          "  first fill deletes the other";
   }
 
 #endif
