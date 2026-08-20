@@ -1,5 +1,5 @@
 #property copyright "BREAK100"
-#property version   "1.71"
+#property version   "1.72"
 #property description "Observe/Shadow/DEMO_AUTO(demo only). Live locked. No profit claim."
 
 #include <Break100/Channel.mqh>
@@ -75,12 +75,12 @@ input bool           InpCapture        = true;         // Ticks + M1-H4 + ARM se
 
 #define CLR_INK      C'11,13,18'
 #define CLR_HUD      C'16,18,24'
-#define CLR_BOX_FILL C'22,28,38'
+#define CLR_BOX_FILL C'245,245,250'
 #define CLR_RES      C'198,162,98'
 #define CLR_SUP      C'86,138,128'
 #define CLR_EQ       C'120,118,108'
-#define CLR_BUY      C'212,175,106'
-#define CLR_SELL     C'186,96,96'
+#define CLR_BUY      C'46,180,90'
+#define CLR_SELL     C'214,64,64'
 
 struct B100Levels
   {
@@ -798,6 +798,7 @@ void B100PaintHistBoxes()
       ObjectSetInteger(0, id, OBJPROP_FILL, true);
       ObjectSetInteger(0, id, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, id, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, id, OBJPROP_TIMEFRAMES, OBJ_PERIOD_M30);
      }
   }
 
@@ -816,7 +817,7 @@ void B100BoxRail(const string name, const datetime t0, const datetime t1, const 
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_PERIOD_M30);
   }
 
 void B100BoxTag(const string name, const datetime t, const double price, const string text, const color clr, const ENUM_ANCHOR_POINT anchor)
@@ -832,7 +833,7 @@ void B100BoxTag(const string name, const datetime t, const double price, const s
    ObjectSetInteger(0, name, OBJPROP_ANCHOR, anchor);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_PERIOD_M30);
   }
 
 void B100PaintBox()
@@ -843,19 +844,15 @@ void B100PaintBox()
       B100PaintHistBoxes();
       last_hist = g_box.hist_n;
      }
-   if(InpStrategy != B100_STRAT_BOX_M30 || !g_box.ready)
-     {
-      ObjectSetInteger(0, BOX_RECT,    OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, BOX_RES,     OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, BOX_SUP,     OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, BOX_MID,     OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, BOX_BUY,     OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, BOX_SELL,    OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, BOX_RES_LBL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, BOX_SUP_LBL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   if(InpStrategy != B100_STRAT_BOX_M30)
       return;
-     }
-   const datetime t1 = TimeCurrent() + PeriodSeconds(PERIOD_M30) * 6;
+   // Keep the last zone on the chart after fill (SCAN). Hide only if we never had a box.
+   if(g_box.t_left == 0 || g_box.high == 0.0 || g_box.low == 0.0)
+      return;
+   const bool live = (g_box.ready && g_box.state == B100_BOX_ARMED);
+   const datetime t1 = live
+                       ? (TimeCurrent() + PeriodSeconds(PERIOD_M30) * 6)
+                       : (g_box.t_right > 0 ? g_box.t_right + PeriodSeconds(PERIOD_M30) : TimeCurrent());
    const datetime t0 = (g_box.t_left > 0) ? g_box.t_left : iTime(_Symbol, PERIOD_M30, 8);
    if(ObjectFind(0, BOX_RECT) < 0)
       ObjectCreate(0, BOX_RECT, OBJ_RECTANGLE, 0, t0, g_box.high, t1, g_box.low);
@@ -870,7 +867,7 @@ void B100PaintBox()
    ObjectSetInteger(0, BOX_RECT, OBJPROP_FILL, true);
    ObjectSetInteger(0, BOX_RECT, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, BOX_RECT, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, BOX_RECT, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+   ObjectSetInteger(0, BOX_RECT, OBJPROP_TIMEFRAMES, OBJ_PERIOD_M30);
 
    B100BoxRail(BOX_RES, t0, t1, g_box.high, CLR_RES, 2);
    B100BoxRail(BOX_SUP, t0, t1, g_box.low,  CLR_SUP, 2);
@@ -973,10 +970,11 @@ void B100MarkBoxSignal(const int dir, const double price)
    ObjectCreate(0, name, OBJ_ARROW, 0, t, price);
    ObjectSetInteger(0, name, OBJPROP_ARROWCODE, (dir > 0) ? 233 : 234);
    ObjectSetInteger(0, name, OBJPROP_COLOR, (dir > 0) ? CLR_BUY : CLR_SELL);
-   ObjectSetInteger(0, name, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_PERIOD_M30);
   }
 
 void B100PaintHud()
