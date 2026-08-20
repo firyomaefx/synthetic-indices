@@ -33,6 +33,7 @@ struct B100Capture
    ulong        outcome_n;
    uint         last_flush_ms;
    uint         last_reopen_ms;
+   uint         last_acct_ms;
    int          buf_n;
    B100TickRow  buf[B100_TICK_BUF];
   };
@@ -212,6 +213,7 @@ void B100CaptureInit(B100Capture &c, const bool on)
    c.buf_n = 0;
    c.last_flush_ms = GetTickCount();
    c.last_reopen_ms = GetTickCount();
+   c.last_acct_ms = 0;
    for(int i = 0; i < B100_CAP_TFS; i++)
      {
       c.bar_fh[i] = INVALID_HANDLE;
@@ -296,6 +298,36 @@ void B100CaptureOnTick(B100Capture &c)
      }
    for(int i = 0; i < B100_CAP_TFS; i++)
       B100CapWriteClosedBar(c, i);
+   if(c.last_acct_ms == 0 || (now - c.last_acct_ms) >= 5000)
+      B100CaptureAccount(c);
+  }
+
+void B100CaptureAccount(B100Capture &c)
+  {
+   if(!c.enabled)
+      return;
+   const string name = "BREAK100_account_" + c.symbol_key + ".csv";
+   const int fh = B100CapOpenAppend(name);
+   if(fh == INVALID_HANDLE)
+      return;
+   if(FileSize(fh) == 0)
+      FileWrite(fh, "utc", "login", "trade_mode", "balance", "equity", "margin", "margin_free", "profit", "leverage");
+   else
+      FileSeek(fh, 0, SEEK_END);
+   const long login = AccountInfoInteger(ACCOUNT_LOGIN);
+   const long tmode = AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   FileWrite(fh,
+             TimeToString(TimeGMT(), TIME_DATE | TIME_SECONDS),
+             login,
+             tmode,
+             AccountInfoDouble(ACCOUNT_BALANCE),
+             AccountInfoDouble(ACCOUNT_EQUITY),
+             AccountInfoDouble(ACCOUNT_MARGIN),
+             AccountInfoDouble(ACCOUNT_MARGIN_FREE),
+             AccountInfoDouble(ACCOUNT_PROFIT),
+             AccountInfoInteger(ACCOUNT_LEVERAGE));
+   FileClose(fh);
+   c.last_acct_ms = GetTickCount();
   }
 
 bool B100CopyOHLC(const ENUM_TIMEFRAMES tf, double &o, double &h, double &l, double &cl)

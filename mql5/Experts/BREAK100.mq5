@@ -1,5 +1,5 @@
 #property copyright "BREAK100"
-#property version   "1.75"
+#property version   "1.76"
 #property description "Observe/Shadow/DEMO_AUTO(demo only). Live locked. No profit claim."
 
 #include <Break100/Channel.mqh>
@@ -126,6 +126,8 @@ void B100ApplyChartSkin();
 void B100RestoreChartSkin();
 void B100MarkBoxSignal(const int dir, const double price, datetime when = 0);
 void B100ReplayJournalMarks();
+void B100RescaleJournalMarks();
+int  B100JournalWidth();
 
 int OnInit()
   {
@@ -198,6 +200,7 @@ int OnInit()
      {
       B100PaintBox();
       B100ReplayJournalMarks();
+      B100RescaleJournalMarks();
      }
    B100PaintPanel();
    return INIT_SUCCEEDED;
@@ -1003,12 +1006,13 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when)
    const string ln  = "B100_jn_ln_" + id;
    const color clr = (dir > 0) ? CLR_BUY : CLR_SELL;
    const ENUM_OBJECT kind = (dir > 0) ? OBJ_ARROW_BUY : OBJ_ARROW_SELL;
+   const int w = B100JournalWidth();
 
    if(ObjectFind(0, arr) >= 0)
       ObjectDelete(0, arr);
    ObjectCreate(0, arr, kind, 0, t, price);
    ObjectSetInteger(0, arr, OBJPROP_COLOR, clr);
-   ObjectSetInteger(0, arr, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, arr, OBJPROP_WIDTH, w);
    ObjectSetInteger(0, arr, OBJPROP_ANCHOR, (dir > 0) ? ANCHOR_TOP : ANCHOR_BOTTOM);
    ObjectSetInteger(0, arr, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, arr, OBJPROP_HIDDEN, false);
@@ -1023,13 +1027,41 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when)
    ObjectCreate(0, ln, OBJ_TREND, 0, t0, price, t, price);
    ObjectSetInteger(0, ln, OBJPROP_COLOR, clr);
    ObjectSetInteger(0, ln, OBJPROP_STYLE, STYLE_SOLID);
-   ObjectSetInteger(0, ln, OBJPROP_WIDTH, 3);
+   ObjectSetInteger(0, ln, OBJPROP_WIDTH, w);
    ObjectSetInteger(0, ln, OBJPROP_RAY_RIGHT, false);
    ObjectSetInteger(0, ln, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, ln, OBJPROP_HIDDEN, false);
    ObjectSetInteger(0, ln, OBJPROP_BACK, false);
    ObjectSetInteger(0, ln, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
    ChartRedraw(0);
+  }
+
+int B100JournalWidth()
+  {
+   int scale = (int)ChartGetInteger(0, CHART_SCALE);
+   if(scale < 0) scale = 0;
+   if(scale > 5) scale = 5;
+   return 2 + scale;
+  }
+
+void B100RescaleJournalMarks()
+  {
+   const int w = B100JournalWidth();
+   const int n = ObjectsTotal(0, -1, -1);
+   for(int i = 0; i < n; i++)
+     {
+      const string name = ObjectName(0, i, -1, -1);
+      if(StringFind(name, "B100_jn_arr_") != 0 && StringFind(name, "B100_jn_ln_") != 0)
+         continue;
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, w);
+     }
+   ChartRedraw(0);
+  }
+
+void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
+  {
+   if(id == CHARTEVENT_CHART_CHANGE)
+      B100RescaleJournalMarks();
   }
 
 void B100PaintHud()
