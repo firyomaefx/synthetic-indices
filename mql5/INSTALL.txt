@@ -18,6 +18,11 @@ Not ready (blocked on purpose)
 This is an Observe / Shadow instrument. It will not open, close, or modify
 broker positions. Do not add OrderSend yourself.
 
+A REAL synthetic account is the intended data source. Observe and Shadow
+run on real ticks. AutoTrading stays OFF. Demo/Live order modes stay blocked.
+
+I cannot compile .ex5 off your terminal. MetaEditor F7 is required once.
+
 Windows trainer (.exe)
 ---------------------
 Training is not inside MT5. The EA writes labels; you train offline.
@@ -36,15 +41,13 @@ The trainer never talks to the broker. OOS R is not expected profit.
 ------------------------------------------------
 0. What you need
 ------------------------------------------------
-- A Windows, macOS, or Linux PC with MetaTrader 5 installed.
-  (MT4 will not compile these files.)
-- A broker that offers synthetic indices. Deriv MT5 is the usual choice
-  for Boom / Crash / Volatility / Step.
-- A DEMO synthetic-indices account. Do not start on a real account.
-- The zip: BREAK100-MT5.zip  (Experts + Indicators + Include/Break100)
+- A Windows PC or VPS with MetaTrader 5 (desktop). The iPhone app cannot
+  attach a custom EA.
+- A broker that offers synthetic indices (Deriv MT5 is typical).
+- The same DEMO or REAL synthetic account you use for data. Real is fine.
+- The zip: BREAK100-MT5.zip
 
-Recommended first symbol: Boom 100 Index  (or Crash 100 Index).
-M1 or M5 chart. Tick data is what the EA actually uses.
+Recommended first symbol: Boom 100 Index. M1. Tick data is what the EA uses.
 
 ------------------------------------------------
 1. Broker / terminal (Deriv example)
@@ -55,7 +58,7 @@ M1 or M5 chart. Tick data is what the EA actually uses.
 3. Log in: File → Login to Trade Account
      - Login, password, and server from the broker email
      - Server name usually looks like  Deriv-Demo
-4. Confirm bottom-right of MT5 shows "demo" not "real".
+4. Confirm bottom-right of MT5. Real is OK for this package.
 5. Market Watch (Ctrl+M) → right-click → Show All.
 6. Find and double-click:
      Boom 100 Index
@@ -73,14 +76,17 @@ M1 or M5 chart. Tick data is what the EA actually uses.
 1. Unzip BREAK100-MT5.zip. You should see:
 
      INSTALL.txt
+     START_HERE.txt
+     BREAK100-Trainer.exe
      MQL5/
-       Experts/BREAK100.mq5
+       Experts/BREAK100.mq5          (v1.42)
        Indicators/BREAK100_Channel.mq5
        Include/Break100/Channel.mqh
        Include/Break100/Mode.mqh
        Include/Break100/SafeEV.mqh
        Include/Break100/Risk.mqh
        Include/Break100/Shadow.mqh
+       Include/Break100/Learner.mqh
 
 2. In MT5: File → Open Data Folder.
 3. Open the MQL5 folder inside that window.
@@ -224,19 +230,15 @@ shadow     Virtual book. Stays flat in OBSERVE. In SHADOW it may show
 4. Experts log:  SHADOW virtual LONG/SHORT lots=… entry=… sl=…
 5. Nothing is sent to the broker. AutoTrading can stay OFF.
 
-REAL accounts are forced back to OBSERVE even if you pick SHADOW.
+REAL accounts stay in Observe or Shadow. DEMO/LIVE inputs are ignored.
+Nothing is sent to the broker. AutoTrading can stay OFF.
 
 ------------------------------------------------
-8. DEMO / LIVE
+8. DEMO / LIVE order modes
 ------------------------------------------------
 Selecting DEMO or LIVE in inputs does nothing useful:
-  DEMO → forced OBSERVE, block_reason = DEMO_GATE_MISSING
-  LIVE → forced OBSERVE, block_reason = LIVE_DISABLED
-A real (non-demo) account cannot leave OBSERVE.
-
-There is no OrderSend in the source. Enabling Live later requires a
-completed G5 evidence pack, owner lease, allowlist, and a separate
-execution adapter. That work is not in this zip.
+  forced OBSERVE, block_reason = DEMO_GATE_MISSING or LIVE_DISABLED
+There is no OrderSend in the source.
 
 ------------------------------------------------
 9. Daily use

@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.41"
-#property description "Observe/Shadow. Dynamic SL/TP from causal UCB+MFE/MAE learner. No orders."
+#property version   "1.42"
+#property description "Observe/Shadow on demo or real. Data only. No orders."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -84,10 +84,12 @@ int             g_signal_seq = 0;
 int OnInit()
   {
    g_init_note = B100ApplyRequestedMode(g_mode, InpMode);
-   if(B100IsRealAccount() && g_mode.mode != B100_OBSERVE)
+   if(B100IsRealAccount() && (InpMode == B100_DEMO || InpMode == B100_LIVE))
      {
-      B100FailClosed(g_mode, "REAL_ACCOUNT_FORCED_OBSERVE");
-      g_init_note = "REAL_ACCOUNT_FORCED_OBSERVE: live account cannot leave OBSERVE";
+      g_mode.mode         = B100_OBSERVE;
+      g_mode.health       = B100_HEALTHY;
+      g_mode.block_reason = "REAL_ACCOUNT_DATA_ONLY";
+      g_init_note = "REAL_ACCOUNT_DATA_ONLY: demo/live inputs ignored — Observe/Shadow for ticks, no orders";
      }
 
    const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
