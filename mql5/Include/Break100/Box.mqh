@@ -1,9 +1,8 @@
 #ifndef BREAK100_BOX_MQH
 #define BREAK100_BOX_MQH
 
-// Tight consolidation box (the red clusters): 3–8 overlapping M30 bars
-// with range << ATR. Then virtual OCO: BUY STOP above, SELL STOP below.
-// Closed bars only for detection. No broker pending orders.
+// Tight pause (3–8 overlapping M30 bars, range <= k*ATR).
+// Virtual OCO on ticks: BUY STOP above, SELL STOP below. No broker orders.
 
 enum ENUM_B100_STRAT
   {
@@ -17,31 +16,43 @@ enum ENUM_B100_BOX_STATE
    B100_BOX_ARMED = 1
   };
 
+#define B100_BOX_HIST 24
+
+struct B100BoxHist
+  {
+   datetime t_left;
+   datetime t_right;
+   double   high;
+   double   low;
+  };
+
 struct B100Box
   {
-   bool              ready;
-   ENUM_B100_BOX_STATE state;
-   double            high;
-   double            low;
-   double            height;
-   double            buy_stop;
-   double            sell_stop;
-   datetime          t_left;
-   datetime          t_right;
-   int               bars;
-   datetime          last_closed_bar;
-   datetime          armed_bar;
-   int               wait_bars;
-   string            last_label;
-   int               last_side;
-   double            last_mfe;
-   double            last_mae;
-   double            last_hw;
-   int               n_break_up;
-   int               n_break_dn;
-   int               n_fail;
-   int               n_boxes;
-   double            atr;
+   bool                 ready;
+   ENUM_B100_BOX_STATE  state;
+   double               high;
+   double               low;
+   double               height;
+   double               buy_stop;
+   double               sell_stop;
+   datetime             t_left;
+   datetime             t_right;
+   int                  bars;
+   datetime             last_closed_bar;
+   datetime             armed_bar;
+   int                  wait_bars;
+   string               last_label;
+   int                  last_side;
+   double               last_mfe;
+   double               last_mae;
+   double               last_hw;
+   int                  n_break_up;
+   int                  n_break_dn;
+   int                  n_fail;
+   int                  n_boxes;
+   double               atr;
+   B100BoxHist          hist[B100_BOX_HIST];
+   int                  hist_n;
   };
 
 void B100BoxInit(B100Box &b)
@@ -55,10 +66,7 @@ double B100TrueRange(const ENUM_TIMEFRAMES tf, const int shift)
    const double h = iHigh(_Symbol, tf, shift);
    const double l = iLow(_Symbol, tf, shift);
    const double pc = iClose(_Symbol, tf, shift + 1);
-   const double a = h - l;
-   const double b = MathAbs(h - pc);
-   const double c = MathAbs(l - pc);
-   return MathMax(a, MathMax(b, c));
+   return MathMax(h - l, MathMax(MathAbs(h - pc), MathAbs(l - pc)));
   }
 
 double B100Atr(const ENUM_TIMEFRAMES tf, const int period, const int shift)
@@ -71,8 +79,8 @@ double B100Atr(const ENUM_TIMEFRAMES tf, const int period, const int shift)
   }
 
 bool B100WindowIsCluster(const ENUM_TIMEFRAMES tf,
-                         const int start,   // oldest shift
-                         const int end,     // newest shift (>=1)
+                         const int start,
+                         const int end,
                          const double atr,
                          const double atr_max,
                          double &hi,
@@ -94,46 +102,45 @@ bool B100WindowIsCluster(const ENUM_TIMEFRAMES tf,
       return false;
    if(rng > atr_max * atr)
       return false;
-   // Every bar must overlap the box (pause, not a staircase).
-   const double overlap_need = 0.25 * rng;
+   const double overlap_need = 0.10 * rng;
    for(int i = end; i <= start; i++)
      {
       const double h = iHigh(_Symbol, tf, i);
       const double l = iLow(_Symbol, tf, i);
-      const double ov = MathMin(h, hi) - MathMax(l, lo);
-      if(ov < overlap_need)
+      if(MathMin(h, hi) - MathMax(l, lo) < overlap_need)
          return false;
      }
    return true;
   }
 
-bool B100FindCluster(const ENUM_TIMEFRAMES tf,
-                     const int min_bars,
-                     const int max_bars,
-                     const int atr_period,
-                     const double atr_max,
-                     double &hi,
-                     double &lo,
-                     datetime &t_left,
-                     datetime &t_right,
-                     int &n_bars,
-                     double &atr)
+bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
+                       const int end_shift,
+                       const int min_bars,
+                       const int max_bars,
+                       const int atr_period,
+                       const double atr_max,
+                       double &hi,
+                       double &lo,
+                       datetime &t_left,
+                       datetime &t_right,
+                       int &n_bars,
+                       double &atr)
   {
-   atr = B100Atr(tf, atr_period, 1);
+   if(end_shift < 1)
+      return false;
+   atr = B100Atr(tf, atr_period, end_shift);
    const int minb = MathMax(3, min_bars);
    const int maxb = MathMax(minb, max_bars);
-   if(iBars(_Symbol, tf) < maxb + atr_period + 3)
+   if(iBars(_Symbol, tf) < end_shift + maxb + atr_period + 2)
       return false;
 
-   // Prefer the tightest qualifying cluster that ENDS at bar 1 (just closed).
    bool found = false;
    double best_rng = 1.0e100;
    for(int len = minb; len <= maxb; len++)
      {
       double h, l;
-      const int start = len; // shift of oldest
-      const int end   = 1;   // newest closed
-      if(!B100WindowIsCluster(tf, start, end, atr, atr_max, h, l))
+      const int start = end_shift + len - 1;
+      if(!B100WindowIsCluster(tf, start, end_shift, atr, atr_max, h, l))
          continue;
       const double rng = h - l;
       if(rng < best_rng)
@@ -143,91 +150,123 @@ bool B100FindCluster(const ENUM_TIMEFRAMES tf,
          lo = l;
          n_bars = len;
          t_left = iTime(_Symbol, tf, start);
-         t_right = iTime(_Symbol, tf, end);
+         t_right = iTime(_Symbol, tf, end_shift);
          found = true;
         }
      }
    return found;
   }
 
-string B100BoxStep(B100Box &b,
-                   const ENUM_TIMEFRAMES tf,
-                   const int min_bars,
-                   const int max_bars,
-                   const int atr_period,
-                   const double atr_max,
-                   const int timeout_bars,
-                   const double stop_offset)
+void B100BoxPushHist(B100Box &b, const datetime t0, const datetime t1, const double hi, const double lo)
+  {
+   if(b.hist_n < B100_BOX_HIST)
+     {
+      b.hist[b.hist_n].t_left  = t0;
+      b.hist[b.hist_n].t_right = t1;
+      b.hist[b.hist_n].high    = hi;
+      b.hist[b.hist_n].low     = lo;
+      b.hist_n++;
+      return;
+     }
+   for(int i = 1; i < B100_BOX_HIST; i++)
+      b.hist[i - 1] = b.hist[i];
+   b.hist[B100_BOX_HIST - 1].t_left  = t0;
+   b.hist[B100_BOX_HIST - 1].t_right = t1;
+   b.hist[B100_BOX_HIST - 1].high    = hi;
+   b.hist[B100_BOX_HIST - 1].low     = lo;
+  }
+
+void B100BoxScanHistory(B100Box &b,
+                        const ENUM_TIMEFRAMES tf,
+                        const int min_bars,
+                        const int max_bars,
+                        const int atr_period,
+                        const double atr_max)
+  {
+   b.hist_n = 0;
+   int shift = 2;
+   const int last = MathMin(180, iBars(_Symbol, tf) - max_bars - atr_period - 4);
+   while(shift <= last && b.hist_n < B100_BOX_HIST)
+     {
+      double hi, lo, atr;
+      datetime t0, t1;
+      int n = 0;
+      if(B100FindClusterAt(tf, shift, min_bars, max_bars, atr_period, atr_max, hi, lo, t0, t1, n, atr))
+        {
+         B100BoxPushHist(b, t0, t1, hi, lo);
+         shift += n;
+        }
+      else
+         shift++;
+     }
+  }
+
+string B100BoxOnTick(B100Box &b,
+                     const ENUM_TIMEFRAMES tf,
+                     const int min_bars,
+                     const int max_bars,
+                     const int atr_period,
+                     const double atr_max,
+                     const int timeout_bars,
+                     const double bid,
+                     const double ask)
   {
    const datetime closed = iTime(_Symbol, tf, 1);
-   if(closed == 0)
-      return "";
-   if(closed == b.last_closed_bar)
-      return "";
-   const bool first = (b.last_closed_bar == 0);
-   b.last_closed_bar = closed;
-   if(first)
-      return "";
-
-   const double offset = MathMax(stop_offset, _Point);
-   string labeled = "";
+   const bool new_bar = (closed != 0 && closed != b.last_closed_bar);
+   if(new_bar)
+     {
+      if(b.last_closed_bar != 0 && b.state == B100_BOX_ARMED)
+         b.wait_bars++;
+      b.last_closed_bar = closed;
+     }
 
    if(b.state == B100_BOX_ARMED)
      {
-      b.wait_bars++;
-      const double h1 = iHigh(_Symbol, tf, 1);
-      const double l1 = iLow(_Symbol, tf, 1);
-      const double c1 = iClose(_Symbol, tf, 1);
-      const bool hit_buy  = (h1 >= b.buy_stop);
-      const bool hit_sell = (l1 <= b.sell_stop);
-
+      const bool hit_buy  = (ask >= b.buy_stop);
+      const bool hit_sell = (bid <= b.sell_stop);
       if(hit_buy && hit_sell)
         {
-         labeled = "CENSORED_OR_AMBIGUOUS";
-         b.n_fail++;
-         b.last_label = labeled;
+         b.last_label = "CENSORED_OR_AMBIGUOUS";
          b.last_side  = 0;
          b.last_hw    = b.height;
          b.last_mfe   = 0.0;
          b.last_mae   = -b.height;
-         b.state      = B100_BOX_SCAN;
-         b.ready      = false;
-         return labeled;
+         b.n_fail++;
+         b.state = B100_BOX_SCAN;
+         b.ready = false;
+         return b.last_label;
         }
       if(hit_buy)
         {
-         labeled = "BREAKOUT_UP";
-         b.n_break_up++;
-         b.last_label = labeled;
+         b.last_label = "BREAKOUT_UP";
          b.last_side  = 1;
          b.last_hw    = b.height;
-         b.last_mfe   = MathMax(0.0, c1 - b.buy_stop);
-         b.last_mae   = MathMin(0.0, l1 - b.buy_stop);
-         b.state      = B100_BOX_SCAN;
-         return labeled;
+         b.last_mfe   = ask - b.buy_stop;
+         b.last_mae   = 0.0;
+         b.n_break_up++;
+         b.state = B100_BOX_SCAN;
+         return b.last_label;
         }
       if(hit_sell)
         {
-         labeled = "BREAKOUT_DOWN";
-         b.n_break_dn++;
-         b.last_label = labeled;
+         b.last_label = "BREAKOUT_DOWN";
          b.last_side  = -1;
          b.last_hw    = b.height;
-         b.last_mfe   = MathMax(0.0, b.sell_stop - c1);
-         b.last_mae   = MathMin(0.0, b.sell_stop - h1);
-         b.state      = B100_BOX_SCAN;
-         return labeled;
+         b.last_mfe   = b.sell_stop - bid;
+         b.last_mae   = 0.0;
+         b.n_break_dn++;
+         b.state = B100_BOX_SCAN;
+         return b.last_label;
         }
       if(b.wait_bars >= MathMax(2, timeout_bars))
         {
-         labeled = "CENSORED_OR_AMBIGUOUS";
-         b.n_fail++;
-         b.last_label = labeled;
+         b.last_label = "CENSORED_OR_AMBIGUOUS";
          b.last_side  = 0;
          b.last_hw    = b.height;
-         b.state      = B100_BOX_SCAN;
-         b.ready      = false;
-         return labeled;
+         b.n_fail++;
+         b.state = B100_BOX_SCAN;
+         b.ready = false;
+         return b.last_label;
         }
       return "";
      }
@@ -235,12 +274,13 @@ string B100BoxStep(B100Box &b,
    double hi, lo, atr;
    datetime t0, t1;
    int n = 0;
-   if(!B100FindCluster(tf, min_bars, max_bars, atr_period, atr_max, hi, lo, t0, t1, n, atr))
+   if(!B100FindClusterAt(tf, 1, min_bars, max_bars, atr_period, atr_max, hi, lo, t0, t1, n, atr))
      {
       b.ready = false;
       return "";
      }
 
+   const double offset = MathMax(_Point, 0.02 * MathMax(atr, _Point));
    b.ready     = true;
    b.state     = B100_BOX_ARMED;
    b.high      = hi;
@@ -255,6 +295,7 @@ string B100BoxStep(B100Box &b,
    b.armed_bar = closed;
    b.wait_bars = 0;
    b.n_boxes++;
+   B100BoxPushHist(b, t0, t1, hi, lo);
    return "";
   }
 
@@ -264,7 +305,7 @@ string B100BoxWatchNote(const B100Box &b, const double mid)
       return "scanning for a tight M30 pause (3–8 overlapping bars)";
    return "OCO armed  BUY STOP " + DoubleToString(b.buy_stop, _Digits) +
           "  SELL STOP " + DoubleToString(b.sell_stop, _Digits) +
-          "  (no fade, no market order)";
+          "  — EA will not send these";
   }
 
 #endif

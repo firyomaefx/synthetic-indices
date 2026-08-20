@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.60"
-#property description "Observe/Shadow. Tight M30 pause box + virtual BUY/SELL STOP. No orders."
+#property version   "1.61"
+#property description "Observe/Shadow. Tight pause + tick OCO BUY/SELL STOP. No orders."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -113,6 +113,7 @@ int OnInit()
    ZeroMemory(g_levels);
    B100LearnerInit(g_learner);
    B100BoxInit(g_box);
+   B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxAtrMax);
    B100LearnerLoad(g_learner);
    if(B100PolicyLoad(g_policy))
      {
@@ -141,8 +142,8 @@ int OnInit()
          ChartIndicatorAdd(0, 0, g_ind_handle);
      }
 
-   if(InpStrategy == B100_STRAT_CHANNEL)
-      B100CreateLines();
+   B100CreateLines();
+   B100PaintHistBoxes();
    B100LevelLine(LV_ENTRY, mid, clrSilver, STYLE_DOT, "ENTRY");
    B100LevelLine(LV_SL,    mid, C'181,106,92', STYLE_SOLID, "SL");
    B100LevelLine(LV_TP1,   mid, C'111,154,125', STYLE_DASH, "TP1");
@@ -181,6 +182,7 @@ void OnDeinit(const int reason)
    ObjectDelete(0, LV_TP3);
    ObjectDelete(0, BOX_RECT);
    ObjectsDeleteAll(0, "B100_ev_");
+   ObjectsDeleteAll(0, "B100_hx_");
    B100LearnerSave(g_learner);
    Comment("");
   }
@@ -213,9 +215,8 @@ void OnTick()
 
    if(InpStrategy == B100_STRAT_BOX_M30)
      {
-      const double off = MathMax(_Point, 0.02 * MathMax(g_box.atr, _Point));
-      labeled = B100BoxStep(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars,
-                            InpBoxAtrPeriod, InpBoxAtrMax, InpBoxTimeout, off);
+      labeled = B100BoxOnTick(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars,
+                              InpBoxAtrPeriod, InpBoxAtrMax, InpBoxTimeout, bid, ask);
       if(labeled != "")
         {
          g_last_event = labeled;
@@ -499,17 +500,20 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
          B100FillBoxLevels(1, ask, ask, bid);
       else
          B100FillLevels(1, ask, ask, bid);
-      if(g_decision.hypothetical == B100_ENTER_LONG && g_decision.safe_ev > 0.0 && g_risk_code == "RISK_GATE_PASSED")
+      if(box_mode && g_risk_code == "RISK_GATE_PASSED")
         {
          next = "BUY";
-         note = box_mode
-                ? "BUY STOP filled — break of pause high, Observe only"
-                : "BREAKOUT_UP + SafeEV>0 — Observe only";
+         note = "BUY STOP filled — pause high taken, Observe only (no OrderSend)";
+        }
+      else if(!box_mode && g_decision.hypothetical == B100_ENTER_LONG && g_decision.safe_ev > 0.0 && g_risk_code == "RISK_GATE_PASSED")
+        {
+         next = "BUY";
+         note = "BREAKOUT_UP + SafeEV>0 — Observe only";
         }
       else
         {
          next = "STAND_DOWN";
-         note = "BREAKOUT_UP but " + g_decision.reason;
+         note = "BREAKOUT_UP but " + (box_mode ? g_risk_code : g_decision.reason);
         }
       g_signal_seq = g_pipe.seq;
       B100MarkEvent(labeled, mid);
@@ -520,17 +524,20 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
          B100FillBoxLevels(-1, bid, ask, bid);
       else
          B100FillLevels(-1, bid, ask, bid);
-      if(g_decision.hypothetical == B100_ENTER_SHORT && g_decision.safe_ev > 0.0 && g_risk_code == "RISK_GATE_PASSED")
+      if(box_mode && g_risk_code == "RISK_GATE_PASSED")
         {
          next = "SELL";
-         note = box_mode
-                ? "SELL STOP filled — break of pause low, Observe only"
-                : "BREAKOUT_DOWN + SafeEV>0 — Observe only";
+         note = "SELL STOP filled — pause low taken, Observe only (no OrderSend)";
+        }
+      else if(!box_mode && g_decision.hypothetical == B100_ENTER_SHORT && g_decision.safe_ev > 0.0 && g_risk_code == "RISK_GATE_PASSED")
+        {
+         next = "SELL";
+         note = "BREAKOUT_DOWN + SafeEV>0 — Observe only";
         }
       else
         {
          next = "STAND_DOWN";
-         note = "BREAKOUT_DOWN but " + g_decision.reason;
+         note = "BREAKOUT_DOWN but " + (box_mode ? g_risk_code : g_decision.reason);
         }
       g_signal_seq = g_pipe.seq;
       B100MarkEvent(labeled, mid);
@@ -678,8 +685,33 @@ void B100PaintLevels()
    B100LevelLine(LV_TP3,   g_levels.tp3,   C'70,120,95',         STYLE_DASH,  "TP3");
   }
 
+void B100PaintHistBoxes()
+  {
+   ObjectsDeleteAll(0, "B100_hx_");
+   for(int i = 0; i < g_box.hist_n; i++)
+     {
+      const string id = "B100_hx_" + IntegerToString(i);
+      ObjectCreate(0, id, OBJ_RECTANGLE, 0,
+                   g_box.hist[i].t_left, g_box.hist[i].high,
+                   g_box.hist[i].t_right + PeriodSeconds(InpBoxTF), g_box.hist[i].low);
+      ObjectSetInteger(0, id, OBJPROP_COLOR, C'180,70,70');
+      ObjectSetInteger(0, id, OBJPROP_STYLE, STYLE_SOLID);
+      ObjectSetInteger(0, id, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, id, OBJPROP_BACK, true);
+      ObjectSetInteger(0, id, OBJPROP_FILL, false);
+      ObjectSetInteger(0, id, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, id, OBJPROP_HIDDEN, true);
+     }
+  }
+
 void B100PaintBox()
   {
+   static int last_hist = -1;
+   if(g_box.hist_n != last_hist)
+     {
+      B100PaintHistBoxes();
+      last_hist = g_box.hist_n;
+     }
    if(InpStrategy != B100_STRAT_BOX_M30 || !g_box.ready)
      {
       ObjectSetInteger(0, BOX_RECT, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
