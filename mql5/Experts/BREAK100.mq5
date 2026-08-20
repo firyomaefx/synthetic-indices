@@ -1,5 +1,5 @@
 #property copyright "BREAK100"
-#property version   "1.70"
+#property version   "1.71"
 #property description "Observe/Shadow/DEMO_AUTO(demo only). Live locked. No profit claim."
 
 #include <Break100/Channel.mqh>

@@ -134,22 +134,69 @@ void B100CapFlushTicks(B100Capture &c)
    c.last_flush_ms = GetTickCount();
   }
 
-void B100CapWriteClosedBar(B100Capture &c, const int i)
+void B100CapOpenBar(B100Capture &c, const int i)
   {
+   B100CapClose(c.bar_fh[i]);
+   c.bar_fh[i] = B100CapOpenAppend("BREAK100_bars_" + c.symbol_key + "_" + B100CapTfName(i) + ".csv");
    if(c.bar_fh[i] == INVALID_HANDLE)
       return;
-   MqlRates r[];
-   if(CopyRates(_Symbol, B100CapTf(i), 1, 1, r) < 1)
+   if(FileSize(c.bar_fh[i]) == 0)
+      FileWrite(c.bar_fh[i], "time_utc", "time_gmt", "open", "high", "low", "close",
+                "tick_volume", "spread", "real_volume");
+   else
+      FileSeek(c.bar_fh[i], 0, SEEK_END);
+  }
+
+void B100CapWriteOneBar(B100Capture &c, const int i, const MqlRates &r)
+  {
+   if(c.bar_fh[i] == INVALID_HANDLE)
+      B100CapOpenBar(c, i);
+   if(c.bar_fh[i] == INVALID_HANDLE)
       return;
-   if(r[0].time <= c.last_bar_time[i])
+   if(r.time <= c.last_bar_time[i])
       return;
    FileWrite(c.bar_fh[i],
-             (long)B100BarGmt(r[0].time),
-             TimeToString(B100BarGmt(r[0].time), TIME_DATE | TIME_SECONDS),
-             r[0].open, r[0].high, r[0].low, r[0].close,
-             r[0].tick_volume, r[0].spread, r[0].real_volume);
-   c.last_bar_time[i] = r[0].time;
+             (long)B100BarGmt(r.time),
+             TimeToString(B100BarGmt(r.time), TIME_DATE | TIME_SECONDS),
+             r.open, r.high, r.low, r.close,
+             r.tick_volume, r.spread, r.real_volume);
+   c.last_bar_time[i] = r.time;
    FileFlush(c.bar_fh[i]);
+  }
+
+void B100CapWriteClosedBar(B100Capture &c, const int i)
+  {
+   const ENUM_TIMEFRAMES tf = B100CapTf(i);
+   const datetime closed = iTime(_Symbol, tf, 1);
+   if(closed == 0)
+      return;
+   if(c.bar_fh[i] == INVALID_HANDLE)
+      B100CapOpenBar(c, i);
+   if(closed <= c.last_bar_time[i])
+      return;
+   MqlRates r[];
+   // Catch up missed closed bars (oldest first). Shift 1 = last closed. Never bar 0.
+   const int got = CopyRates(_Symbol, tf, 1, 500, r);
+   if(got < 1)
+     {
+      MqlRates one;
+      one.time = closed;
+      one.open = iOpen(_Symbol, tf, 1);
+      one.high = iHigh(_Symbol, tf, 1);
+      one.low = iLow(_Symbol, tf, 1);
+      one.close = iClose(_Symbol, tf, 1);
+      one.tick_volume = (long)iVolume(_Symbol, tf, 1);
+      one.spread = (int)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+      one.real_volume = 0;
+      B100CapWriteOneBar(c, i, one);
+      return;
+     }
+   for(int k = got - 1; k >= 0; k--)
+     {
+      if(r[k].time <= c.last_bar_time[i])
+         continue;
+      B100CapWriteOneBar(c, i, r[k]);
+     }
   }
 
 void B100CaptureInit(B100Capture &c, const bool on)
@@ -175,19 +222,8 @@ void B100CaptureInit(B100Capture &c, const bool on)
    B100CapOpenTicks(c);
    for(int i = 0; i < B100_CAP_TFS; i++)
      {
-      c.bar_fh[i] = B100CapOpenAppend("BREAK100_bars_" + c.symbol_key + "_" + B100CapTfName(i) + ".csv");
-      if(c.bar_fh[i] == INVALID_HANDLE)
-         continue;
-      if(FileSize(c.bar_fh[i]) == 0)
-         FileWrite(c.bar_fh[i], "time_utc", "time_gmt", "open", "high", "low", "close",
-                   "tick_volume", "spread", "real_volume");
-      else
-        {
-         FileSeek(c.bar_fh[i], 0, SEEK_END);
-         MqlRates r[];
-         if(CopyRates(_Symbol, B100CapTf(i), 1, 1, r) >= 1)
-            c.last_bar_time[i] = r[0].time;
-        }
+      B100CapOpenBar(c, i);
+      // Do not seed last_bar_time to "now" — that skipped hours of closed bars after a stall.
      }
    const int sh = B100CapOpenAppend("BREAK100_setup_" + c.symbol_key + ".csv");
    if(sh != INVALID_HANDLE)
@@ -254,6 +290,8 @@ void B100CaptureOnTick(B100Capture &c)
      {
       B100CapFlushTicks(c);
       B100CapOpenTicks(c);
+      for(int i = 0; i < B100_CAP_TFS; i++)
+         B100CapOpenBar(c, i);
       c.last_reopen_ms = now;
      }
    for(int i = 0; i < B100_CAP_TFS; i++)
