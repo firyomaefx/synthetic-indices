@@ -1,7 +1,7 @@
 #ifndef BREAK100_BOX_MQH
 #define BREAK100_BOX_MQH
 
-// Adaptive M30 range: grow while bars belong to the same high/low, nested in H4.
+// Tight M30 pause: last 4–8 bars that stay in-zone, height ≤ 25% of last H4.
 // Break = M30 close outside. SL/TP in box heights. No fade. No ATR decisions.
 
 enum ENUM_B100_STRAT
@@ -73,15 +73,10 @@ void B100BoxInit(B100Box &b)
 
 double B100H4Span(void)
   {
-   double hi = iHigh(_Symbol, PERIOD_H4, 1);
-   double lo = iLow(_Symbol, PERIOD_H4, 1);
-   for(int i = 2; i <= 3; i++)
-     {
-      const double h = iHigh(_Symbol, PERIOD_H4, i);
-      const double l = iLow(_Symbol, PERIOD_H4, i);
-      if(h > hi) hi = h;
-      if(l < lo) lo = l;
-     }
+   const double hi = iHigh(_Symbol, PERIOD_H4, 1);
+   const double lo = iLow(_Symbol, PERIOD_H4, 1);
+   if(hi <= lo)
+      return 0.0;
    return hi - lo;
   }
 
@@ -155,22 +150,31 @@ bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
    hi = iHigh(_Symbol, tf, end_shift);
    lo = iLow(_Symbol, tf, end_shift);
    n_bars = 1;
-   const double widen = MathMax(0.0, widen_frac);
-   const double frac = MathMax(0.10, h4_frac);
-   for(int sh = end_shift + 1; sh <= end_shift + maxb - 1; sh++)
+   for(int i = 1; i < minb; i++)
+     {
+      const double h = iHigh(_Symbol, tf, end_shift + i);
+      const double l = iLow(_Symbol, tf, end_shift + i);
+      if(h > hi) hi = h;
+      if(l < lo) lo = l;
+      n_bars++;
+     }
+   const double frac = MathMax(0.10, MathMin(h4_frac, 0.40));
+   const double poke = MathMax(0.05, MathMin(widen_frac, 0.15));
+   if(hi - lo > frac * h4_span)
+      return false;
+   for(int sh = end_shift + minb; sh <= end_shift + maxb - 1; sh++)
      {
       const double h = iHigh(_Symbol, tf, sh);
       const double l = iLow(_Symbol, tf, sh);
+      const double H = hi - lo;
+      if(H <= 0.0)
+         break;
+      const double room = poke * H;
+      if(h > hi + room || l < lo - room)
+         break;
       const double nhi = MathMax(hi, h);
       const double nlo = MathMin(lo, l);
-      const double nr = nhi - nlo;
-      if(nr > frac * h4_span)
-         break;
-      const double cur = hi - lo;
-      const double overlap = MathMin(h, hi) - MathMax(l, lo);
-      const double expand = nr - cur;
-      const bool belongs = (overlap > 0.0) || (cur > 0.0 && expand <= widen * cur);
-      if(!belongs)
+      if(nhi - nlo > frac * h4_span)
          break;
       hi = nhi;
       lo = nlo;

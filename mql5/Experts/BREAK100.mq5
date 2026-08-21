@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.90"
-#property description "Daily Signal 1+ from 06:00 GMT. Threaded TP/SL. Live locked."
+#property version   "1.91"
+#property description "Tight M30 box (last 4–8 bars, 25% of 1 H4). Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -19,11 +19,11 @@ input ENUM_B100_MODE InpMode           = B100_OBSERVE; // OBSERVE/SHADOW/DEMO(de
 input ENUM_B100_STRAT InpStrategy      = B100_STRAT_BOX_M30; // CHANNEL tick band, or M30 box breakout
 
 input ENUM_TIMEFRAMES InpBoxTF         = PERIOD_M30;   // Box timeframe
-input int            InpBoxMinBars     = 4;            // Min M30 bars in a live range (2h)
-input int            InpBoxMaxBars     = 24;           // Max M30 bars (3 H4)
+input int            InpBoxMinBars     = 4;            // Min M30 bars in the pause (2h)
+input int            InpBoxMaxBars     = 8;            // Max M30 bars (one H4)
 input int            InpBoxAtrPeriod   = 14;           // unused (kept for old .set files)
-input double         InpBoxH4Frac      = 0.50;         // Range height ≤ this × last 3 H4
-input double         InpBoxWiden       = 0.15;         // Absorb a bar if it widens range by ≤ this
+input double         InpBoxH4Frac      = 0.25;         // Box height ≤ this × last 1 H4 candle
+input double         InpBoxWiden       = 0.10;         // Older bar may poke at most this × height
 input double         InpBoxSlBuf       = 0.15;         // SL beyond opposite rail, in box heights
 input int            InpBoxTimeout     = 10;           // Armed closes without fill → cancel
 input bool           InpBoxNoFade      = true;         // Never fade the pause
@@ -1609,7 +1609,7 @@ void B100BoxRail(const string name, const datetime t0, const datetime t1, const 
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
    ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
    ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
-   ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, true);
+   ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
@@ -1645,11 +1645,8 @@ void B100PaintBox()
    // Keep the last zone on the chart after fill (SCAN). Hide only if we never had a box.
    if(g_box.t_left == 0 || g_box.high == 0.0 || g_box.low == 0.0)
       return;
-   const bool live = (g_box.ready && g_box.state == B100_BOX_ARMED);
-   const datetime t1 = live
-                       ? (TimeCurrent() + PeriodSeconds(PERIOD_M30) * 6)
-                       : (g_box.t_right > 0 ? g_box.t_right + PeriodSeconds(PERIOD_M30) : TimeCurrent());
-   const datetime t0 = (g_box.t_left > 0) ? g_box.t_left : iTime(_Symbol, PERIOD_M30, 8);
+   const datetime t1 = (g_box.t_right > 0) ? g_box.t_right + PeriodSeconds(PERIOD_M30) : TimeCurrent();
+   const datetime t0 = (g_box.t_left > 0) ? g_box.t_left : iTime(_Symbol, PERIOD_M30, 4);
    if(ObjectFind(0, BOX_RECT) < 0)
       ObjectCreate(0, BOX_RECT, OBJ_RECTANGLE, 0, t0, g_box.high, t1, g_box.low);
    ObjectSetInteger(0, BOX_RECT, OBJPROP_TIME, 0, t0);

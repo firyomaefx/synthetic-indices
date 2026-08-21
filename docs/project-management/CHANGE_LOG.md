@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-22 | v1.91 Tight box: seed last 4 M30, add older only if they stay in-zone; height ≤ 25% of last 1 H4; max 8 bars; no infinite rays. Live locked. | MQL5 Box + paint | Owner request |
 | 2026-08-22 | v1.90 Telegram daily Signal 1,2,… from 06:00 GMT; resets next 06:00. Same number on ENTRY/TP/SL replies. Live locked. | MQL5 Telegram | Owner request |
 | 2026-08-22 | v1.89 Telegram: WATCH/ENTRY start a thread; TP1/TP2/TP3 reply on that message as soon as tagged; SL omitted if TP1 already posted. Tick-size points. Live locked. | MQL5 Telegram | Owner request |
 | 2026-08-22 | v1.88 Adaptive M30 range: grow while bars belong to the same high/low (min 4 / max 24), nested in 3 H4 boxes; pattern features (touches, close loc, compress) for ML/RL. Break-only, no fade, no ATR. Live locked. | MQL5 Box/Train/Capture | Owner request |
