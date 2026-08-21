@@ -44,15 +44,38 @@ string B100UrlEnc(string s)
    return s;
   }
 
-bool B100TelegramSend(string text)
+long B100TgParseMsgId(const uchar &result[])
   {
-   if(!g_tg_ok)
-      return false;
+   string json = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+   const int p = StringFind(json, "\"message_id\":");
+   if(p < 0)
+      return 0;
+   int i = p + 13;
+   while(i < StringLen(json) && (StringGetCharacter(json, i) == ' ' || StringGetCharacter(json, i) == '\t'))
+      i++;
+   long id = 0;
+   while(i < StringLen(json))
+     {
+      const ushort ch = (ushort)StringGetCharacter(json, i);
+      if(ch < '0' || ch > '9')
+         break;
+      id = id * 10 + (ch - '0');
+      i++;
+     }
+   return id;
+  }
+
+long B100TelegramSendReply(string text, const long reply_to)
+  {
+   if(!g_tg_ok || text == "")
+      return 0;
    uchar data[];
    uchar result[];
    const string headers = "Content-Type: application/x-www-form-urlencoded\r\n";
    string result_headers = "";
    string body = "chat_id=" + B100UrlEnc(g_tg_chat) + "&text=" + B100UrlEnc(text);
+   if(reply_to > 0)
+      body += "&reply_to_message_id=" + IntegerToString((int)reply_to);
    StringToCharArray(body, data, 0, WHOLE_ARRAY, CP_UTF8);
    int n = ArraySize(data);
    if(n > 0 && data[n - 1] == 0)
@@ -63,9 +86,14 @@ bool B100TelegramSend(string text)
    if(code != 200)
      {
       Print("B100 Telegram HTTP ", code, " err=", GetLastError());
-      return false;
+      return 0;
      }
-   return true;
+   return B100TgParseMsgId(result);
+  }
+
+bool B100TelegramSend(string text)
+  {
+   return (B100TelegramSendReply(text, 0) > 0);
   }
 
 string B100TgOnceFile(void)
@@ -108,12 +136,17 @@ void B100TgRemember(const string key)
 
 bool B100TelegramOnce(const string key, const string text)
   {
+   return (B100TelegramOnceReply(key, text, 0) > 0);
+  }
+
+long B100TelegramOnceReply(const string key, const string text, const long reply_to)
+  {
    if(!g_tg_ok || text == "")
-      return false;
+      return 0;
    if(B100TgSeen(key))
-      return false;
+      return 0;
    B100TgRemember(key);
-   return B100TelegramSend(text);
+   return B100TelegramSendReply(text, reply_to);
   }
 
 #endif

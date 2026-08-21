@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.88"
-#property description "Adaptive M30 range (grow while bars belong). Break-only OCO. Live locked."
+#property version   "1.89"
+#property description "Telegram replies on the original signal (TP1/2/3 live). Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -142,6 +142,10 @@ double          g_oco_fill_px    = 0;
 datetime        g_oco_watch_bar  = 0;
 datetime        g_oco_fill_bar   = 0;
 datetime        g_oco_cancel_bar = 0;
+long            g_tg_watch_id    = 0;
+long            g_tg_entry_id    = 0;
+int             g_tg_tp_announced = 0;
+datetime        g_tg_thread_bar  = 0;
 bool            g_skin_on    = false;
 color           g_old_bg, g_old_fg, g_old_grid, g_old_up, g_old_dn, g_old_bull, g_old_bear, g_old_ask, g_old_bid, g_old_vol;
 bool            g_old_show_grid, g_old_show_vol, g_old_show_ohlc, g_old_show_ask;
@@ -166,6 +170,10 @@ void B100TelegramWatch(void);
 void B100TelegramFill(const int dir, const double px, const bool sibling_deleted);
 void B100TelegramCancel(const string reason);
 void B100TelegramClose(const string why, const int dir, const double entry, const double exit_px, const double sl, const double tp, const double pts);
+void B100TelegramTp(const int level, const double px);
+void B100TgThreadSave(void);
+void B100TgThreadLoad(void);
+long B100TgParent(void);
 datetime B100StatusReadGmt(void);
 void     B100StatusWriteGmt(const datetime t);
 void     B100MaybeStatus(void);
@@ -198,6 +206,7 @@ int OnInit()
    if(InpTelegram)
      {
       B100TelegramLoad();
+      B100TgThreadLoad();
       B100TelegramSelfTest();
      }
    B100LearnerLoad(g_learner);
@@ -532,15 +541,30 @@ void OnTick()
            }
         }
      }
-   if(InpTrainLog && B100TrainStep(g_episode, bid, ask, InpTrainHorizon))
+   const bool path_live = (InpTrainLog && g_episode.active && g_episode.tracking);
+   const bool path_closed = (InpTrainLog && B100TrainStep(g_episode, bid, ask, InpTrainHorizon));
+   if(path_live || path_closed)
+     {
+      const double px_now = (g_episode.side > 0 ? bid : ask);
+      if(g_episode.hit_tp1 == 1 && g_tg_tp_announced < 1)
+         B100TelegramTp(1, px_now);
+      if(g_episode.hit_tp2 == 1 && g_tg_tp_announced < 2)
+         B100TelegramTp(2, px_now);
+      if(g_episode.hit_tp3 == 1 && g_tg_tp_announced < 3)
+         B100TelegramTp(3, px_now);
+     }
+   if(path_closed)
      {
       const double exit_px = (g_episode.side > 0) ? bid : ask;
-      const double pt = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+      const bool skip_sl = ((g_episode.exit_why == "SL" || g_episode.exit_why == "CLOSE_SL") && g_tg_tp_announced >= 1);
+      const double tick = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+      const double pt = (tick > 0.0 ? tick : _Point);
       double pts = 0.0;
       if(pt > 0.0 && g_episode.entry > 0.0)
          pts = (exit_px - g_episode.entry) / pt * (double)g_episode.side;
-      B100TelegramClose(g_episode.exit_why, g_episode.side, g_episode.entry, exit_px,
-                        g_episode.sl, g_episode.tp1, pts);
+      if(!skip_sl)
+         B100TelegramClose(g_episode.exit_why, g_episode.side, g_episode.entry, exit_px,
+                           g_episode.sl, g_episode.tp1, pts);
       if(g_episode.quality == 1 && g_episode.hw > 0.0)
         {
          B100LearnerObserve(g_learner, g_episode.side, g_episode.label,
@@ -562,7 +586,9 @@ void OnTick()
 
 int B100Pts(const double a, const double b)
   {
-   const double pt = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double pt = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(pt <= 0.0)
+      pt = _Point;
    if(pt <= 0.0 || a <= 0.0 || b <= 0.0)
       return 0;
    return (int)MathRound(MathAbs(a - b) / pt);
@@ -634,11 +660,59 @@ void B100OcoClearTickets(void)
    g_oco_armed   = false;
   }
 
+void B100TgThreadSave(void)
+  {
+   const int fh = FileOpen("BREAK100_tg_thread.txt", FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(fh == INVALID_HANDLE)
+      return;
+   FileWriteString(fh, "armed=" + IntegerToString((int)g_tg_thread_bar) + "\n");
+   FileWriteString(fh, "watch=" + IntegerToString((int)g_tg_watch_id) + "\n");
+   FileWriteString(fh, "entry=" + IntegerToString((int)g_tg_entry_id) + "\n");
+   FileWriteString(fh, "tp=" + IntegerToString(g_tg_tp_announced) + "\n");
+   FileClose(fh);
+  }
+
+void B100TgThreadLoad(void)
+  {
+   const int fh = FileOpen("BREAK100_tg_thread.txt", FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
+   if(fh == INVALID_HANDLE)
+      return;
+   while(!FileIsEnding(fh))
+     {
+      string line = FileReadString(fh);
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      if(StringFind(line, "armed=") == 0)
+         g_tg_thread_bar = (datetime)StringToInteger(StringSubstr(line, 6));
+      else if(StringFind(line, "watch=") == 0)
+         g_tg_watch_id = StringToInteger(StringSubstr(line, 6));
+      else if(StringFind(line, "entry=") == 0)
+         g_tg_entry_id = StringToInteger(StringSubstr(line, 6));
+      else if(StringFind(line, "tp=") == 0)
+         g_tg_tp_announced = (int)StringToInteger(StringSubstr(line, 3));
+     }
+   FileClose(fh);
+  }
+
+long B100TgParent(void)
+  {
+   if(g_tg_entry_id > 0)
+      return g_tg_entry_id;
+   return g_tg_watch_id;
+  }
+
 void B100TelegramWatch(void)
   {
    const string key = B100TgKey("WATCH");
    if(B100TgSeen(key))
       return;
+   if(g_box.armed_bar != g_tg_thread_bar)
+     {
+      g_tg_watch_id = 0;
+      g_tg_entry_id = 0;
+      g_tg_tp_announced = 0;
+      g_tg_thread_bar = g_box.armed_bar;
+     }
    string msg = "👀 BREAK100  WATCH\n";
    msg += _Symbol + "  M30\n";
    if(g_oco_buy_px > 0.0)
@@ -659,7 +733,13 @@ void B100TelegramWatch(void)
       msg += "RL one-side stop.";
    if(!InpTelegram)
       return;
-   B100TelegramOnce(key, msg);
+   const long id = B100TelegramOnceReply(key, msg, 0);
+   if(id > 0)
+     {
+      g_tg_watch_id = id;
+      g_tg_thread_bar = g_box.armed_bar;
+      B100TgThreadSave();
+     }
   }
 
 void B100TelegramFill(const int dir, const double px, const bool sibling_deleted)
@@ -700,7 +780,14 @@ void B100TelegramFill(const int dir, const double px, const bool sibling_deleted
       msg += (dir > 0 ? "\nSELL STOP cancelled" : "\nBUY STOP cancelled");
    if(!InpTelegram)
       return;
-   B100TelegramOnce(key, msg);
+   const long id = B100TelegramOnceReply(key, msg, g_tg_watch_id);
+   if(id > 0)
+     {
+      g_tg_entry_id = id;
+      g_tg_tp_announced = 0;
+      g_tg_thread_bar = g_box.armed_bar;
+      B100TgThreadSave();
+     }
   }
 
 void B100TelegramCancel(const string reason)
@@ -711,7 +798,27 @@ void B100TelegramCancel(const string reason)
    msg += reason;
    if(!InpTelegram)
       return;
-   B100TelegramOnce(key, msg);
+   B100TelegramOnceReply(key, msg, (g_tg_watch_id > 0 ? g_tg_watch_id : 0));
+  }
+
+void B100TelegramTp(const int level, const double px)
+  {
+   if(level < 1 || level > 3)
+      return;
+   if(g_tg_tp_announced >= level)
+      return;
+   const string key = B100TgKey("TP" + IntegerToString(level));
+   string msg = "✅ BREAK100  TP" + IntegerToString(level) + " HIT\n";
+   msg += _Symbol + "  @ " + B100Px(px);
+   if(g_episode.entry > 0.0)
+      msg += "\nfrom ENTRY " + B100Px(g_episode.entry);
+   if(!InpTelegram)
+      return;
+   if(B100TelegramOnceReply(key, msg, B100TgParent()) > 0 || B100TgSeen(key))
+     {
+      g_tg_tp_announced = level;
+      B100TgThreadSave();
+     }
   }
 
 void B100TelegramClose(const string why, const int dir, const double entry, const double exit_px, const double sl, const double tp, const double pts)
@@ -761,7 +868,9 @@ void B100TelegramClose(const string why, const int dir, const double entry, cons
       msg += "Result  flat";
    if(!InpTelegram)
       return;
-   B100TelegramOnce(key, msg);
+   if((tag == "TP1 HIT" || tag == "TP2 HIT" || tag == "TP3 HIT" || tag == "TP HIT") && g_tg_tp_announced >= 1)
+      return;
+   B100TelegramOnceReply(key, msg, B100TgParent());
   }
 
 datetime B100StatusReadGmt(void)
