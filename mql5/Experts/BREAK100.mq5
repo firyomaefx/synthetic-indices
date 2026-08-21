@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.82"
-#property description "M30 box OCO + RL direction/skip + SL/TP. DEMO_AUTO demo only. Live locked."
+#property version   "1.83"
+#property description "Train-quality episodes + RL dir/SL/TP. DEMO_AUTO demo only. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -13,6 +13,7 @@
 #include <Break100/Signal.mqh>
 #include <Break100/DemoExec.mqh>
 #include <Break100/Telegram.mqh>
+#include <Break100/Train.mqh>
 
 input ENUM_B100_MODE InpMode           = B100_OBSERVE; // OBSERVE/SHADOW/DEMO(demo account). LIVE rejected.
 input ENUM_B100_STRAT InpStrategy      = B100_STRAT_BOX_M30; // CHANNEL tick band, or M30 box breakout
@@ -46,6 +47,8 @@ input double         InpTp3R           = 3.0;          // TP3 in R
 
 input bool           InpUseLearner     = true;         // Dynamic SL/TP + direction from closed labels
 input bool           InpDirLearner     = true;         // RL may SKIP / BUY-only / SELL-only / OCO
+input int            InpTrainHorizon   = 12;           // M30 bars to measure MFE/MAE after fill
+input bool           InpTrainLog       = true;         // Write BREAK100_train_*.csv (quality gated)
 input bool           InpShadowLedger   = true;         // Virtual fills in SHADOW
 input bool           InpDrawChannel    = true;         // Draw channel lines
 input bool           InpAttachIndicator= true;         // Attach visual indicator
@@ -108,6 +111,7 @@ B100Learner     g_learner;
 B100LearnPolicy g_policy;
 B100Box         g_box;
 B100Capture     g_capture;
+B100Episode     g_episode;
 int             g_ind_handle = INVALID_HANDLE;
 bool            g_ready      = false;
 datetime        g_last_bar   = 0;
@@ -184,6 +188,7 @@ int OnInit()
    B100BoxInit(g_box);
    B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxAtrMax);
    B100CaptureInit(g_capture, InpCapture);
+   B100TrainInit(g_episode);
    if(InpTelegram)
       B100TelegramLoad();
    B100LearnerLoad(g_learner);
@@ -345,6 +350,8 @@ void OnTick()
          else
            {
             B100CaptureSetup(g_capture, g_box, bid, ask);
+            if(InpTrainLog)
+               B100TrainArm(g_episode, g_box, bid, ask, g_learner.last_arm);
             arm_now = true;
             if(gate != "BOTH")
                Print("BREAK100 RL gate=", gate,
@@ -462,10 +469,27 @@ void OnTick()
       const bool fresh = (InpStrategy != B100_STRAT_BOX_M30 || g_box.armed_bar != g_last_learn_bar);
       if(fresh)
         {
-         B100LearnerObserve(g_learner, learn_side, labeled, learn_mfe, learn_mae, learn_hw);
-         B100LearnerSave(g_learner);
          if(InpStrategy == B100_STRAT_BOX_M30)
             B100CaptureOutcome(g_capture, g_box, labeled, bid, ask);
+         if(InpStrategy == B100_STRAT_BOX_M30 && labeled == "CENSORED_OR_AMBIGUOUS")
+           {
+            if(InpTrainLog)
+               B100TrainFail(g_episode, labeled);
+            B100LearnerObserve(g_learner, learn_side, labeled, learn_mfe, learn_mae, learn_hw);
+            B100LearnerSave(g_learner);
+           }
+         else if(InpStrategy == B100_STRAT_BOX_M30)
+           {
+            B100FillBoxLevels(learn_side, (learn_side > 0 ? g_box.buy_stop : g_box.sell_stop), ask, bid);
+            if(InpTrainLog && g_levels.valid)
+               B100TrainFill(g_episode, learn_side, labeled,
+                             g_levels.entry, g_levels.sl, g_levels.tp1, g_levels.tp2, g_levels.tp3);
+           }
+         else
+           {
+            B100LearnerObserve(g_learner, learn_side, labeled, learn_mfe, learn_mae, learn_hw);
+            B100LearnerSave(g_learner);
+           }
          g_last_learn_bar = g_box.armed_bar;
         }
       if((g_signal == "BUY" || g_signal == "SELL") && g_levels.valid)
@@ -492,6 +516,21 @@ void OnTick()
                Print("B100 DemoExec skipped ", err);
            }
         }
+     }
+   if(InpTrainLog && B100TrainStep(g_episode, bid, ask, InpTrainHorizon))
+     {
+      if(g_episode.quality == 1 && g_episode.hw > 0.0)
+        {
+         B100LearnerObserve(g_learner, g_episode.side, g_episode.label,
+                            g_episode.mfe, g_episode.mae, g_episode.hw);
+         B100LearnerSave(g_learner);
+         Print("BREAK100 train closed  exit=", g_episode.exit_why,
+               " mfe=", DoubleToString(g_episode.mfe, _Digits),
+               " mae=", DoubleToString(g_episode.mae, _Digits),
+               " q=", g_episode.quality);
+        }
+      else
+         Print("BREAK100 train discarded  q=", g_episode.quality, " ", g_episode.q_reason);
      }
    B100UpdateLines();
    B100PaintLevels();
@@ -665,6 +704,9 @@ void B100TelegramStatus(void)
    msg += "  setup=" + IntegerToString((int)g_capture.setup_n);
    msg += "  outcome=" + IntegerToString((int)g_capture.outcome_n);
    msg += "  last M30=" + last_m30 + "\n";
+   msg += "train " + (g_episode.tracking ? "PATH" : (g_episode.active ? "ARMED" : "idle"));
+   msg += "  q=" + IntegerToString(g_episode.quality);
+   msg += "  " + g_episode.q_reason + "\n";
    msg += "learner n=" + IntegerToString(g_learner.n) + "/" + IntegerToString(B100_LEARN_MAX);
    msg += "  policy=" + (g_policy.source == "" ? "none" : g_policy.source) + "\n";
    msg += "  arm=" + (g_policy.arm_id == "" ? "-" : g_policy.arm_id);

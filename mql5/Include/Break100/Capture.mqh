@@ -273,17 +273,23 @@ void B100CaptureOnTick(B100Capture &c)
    MqlTick tick;
    if(SymbolInfoTick(_Symbol, tick) && tick.bid > 0.0 && tick.ask >= tick.bid)
      {
-      if(c.buf_n >= B100_TICK_BUF)
-         B100CapFlushTicks(c);
-      const int i = c.buf_n;
-      c.buf[i].utc_ms = tick.time_msc;
-      c.buf[i].bid = tick.bid;
-      c.buf[i].ask = tick.ask;
-      c.buf[i].last = tick.last;
-      c.buf[i].volume = (double)tick.volume;
-      c.buf[i].flags = tick.flags;
-      c.buf_n++;
-      c.tick_count++;
+      const double sp = tick.ask - tick.bid;
+      if(sp > tick.bid * 0.02)
+         ; // drop garbage ticks from warehouse (2%+ spread)
+      else
+        {
+         if(c.buf_n >= B100_TICK_BUF)
+            B100CapFlushTicks(c);
+         const int i = c.buf_n;
+         c.buf[i].utc_ms = tick.time_msc;
+         c.buf[i].bid = tick.bid;
+         c.buf[i].ask = tick.ask;
+         c.buf[i].last = tick.last;
+         c.buf[i].volume = (double)tick.volume;
+         c.buf[i].flags = tick.flags;
+         c.buf_n++;
+         c.tick_count++;
+        }
      }
    const uint now = GetTickCount();
    if(c.buf_n >= B100_FLUSH_TICKS || (now - c.last_flush_ms) >= B100_FLUSH_MS)

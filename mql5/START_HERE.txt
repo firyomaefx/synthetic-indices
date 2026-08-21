@@ -1,49 +1,12 @@
-BREAK100 v1.42 — START HERE
+BREAK100 v1.83 — START HERE
 ===========================
-Observe / Shadow. Real synthetic account is OK for tick data.
-This EA does NOT send broker orders.
+GitHub. M30 pause box + OCO. RL: SKIP / BUY-only / SELL-only / SL-TP.
+OBSERVE/SHADOW = no orders. DEMO_AUTO = demo only. LIVE locked.
 
-Grok Build (this chat) does not install on your laptop and cannot
-remote it. Put the project on the laptop like this.
+Train data (additional, quality-gated)
+  Common\Files\BREAK100_train_<symbol>.csv
+  One row per episode AFTER the path is known (SL / TP3 / 12 M30 bars).
+  quality=0 rows are discarded by the trainer.
+  Drag that file onto BREAK100-Trainer.exe (preferred over learn.csv).
 
-------------------------------------------------
-Windows PowerShell  (does copy + compile)
-------------------------------------------------
-1. Unzip BREAK100-MT5.zip. Keep the folder together.
-2. Desktop MT5 must already be installed and logged in (not the iPhone app).
-3. Right-click Install-BREAK100.ps1 -> Run with PowerShell
-   or paste:
-
-     Set-ExecutionPolicy -Scope Process Bypass
-     cd $HOME\Downloads\BREAK100-MT5   # or wherever you unzipped
-     .\Install-BREAK100.ps1
-
-4. If Windows blocks it:  Unblock-File .\Install-BREAK100.ps1
-5. When it prints "Compile OK":
-     MT5 Navigator -> Experts -> Refresh
-     Drag BREAK100 onto Boom 100 M1
-     AutoTrading OFF
-
-That script finds every MT5 data folder, copies the files, and calls
-metaeditor64.exe /compile (same as F7). You only attach.
-
-Git clone of the same sources:
-  git clone https://github.com/firyomaefx/synthetic-indices.git
-
-------------------------------------------------
-If the script cannot find MetaEditor
-------------------------------------------------
-Files are still copied. Then F4 -> F7 on BREAK100_Channel, then BREAK100.
-Version in the file must be 1.42.
-
-------------------------------------------------
-After attach
-------------------------------------------------
-SIGNAL  WAIT
-do not send an order — issued NO_TRADE
-BREAK100  OBSERVE  HEALTHY  orders OFF
-
-account=REAL is expected on a real account. That is data, not live trading.
-
-Trainer later: BREAK100-Trainer.exe (16+ EVENT labels).
-Full handbook: INSTALL.txt
+Compile 1.83. Attach BREAK100 M30. InpTrainLog = true.

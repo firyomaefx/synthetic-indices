@@ -47,7 +47,7 @@ static double realized_r(const Sample *s, double sl_r, double tp3_r) {
 static int parse_csv(const char *path, Sample *out, int cap) {
     FILE *f = fopen(path, "r");
     if (!f) return -1;
-    char line[512];
+    char line[2048];
     int n = 0;
     if (!fgets(line, sizeof line, f)) {
         fclose(f);
@@ -58,8 +58,12 @@ static int parse_csv(const char *path, Sample *out, int cap) {
         memset(&s, 0, sizeof s);
         char lab[40];
         lab[0] = 0;
-        if (sscanf(line, "%d,%39[^,],%lf,%lf,%lf,%d", &s.side, lab, &s.mfe, &s.mae, &s.hw, &s.arm) < 5)
+        int quality = 1;
+        int got = sscanf(line, "%d,%39[^,],%lf,%lf,%lf,%d,%d", &s.side, lab, &s.mfe, &s.mae, &s.hw, &s.arm, &quality);
+        if (got < 5)
             continue;
+        if (got >= 7 && quality == 0)
+            continue; /* drop ungated rows */
         strncpy(s.label, lab, sizeof s.label - 1);
         if (s.arm < 0 || s.arm >= ARMS) s.arm = 0;
         if (s.hw <= 0.0) continue;
@@ -264,6 +268,10 @@ static void policy_path_from_csv(const char *csv, char *out, size_t cap) {
     if (strncmp(name, "BREAK100_learn_", 15) == 0) {
         memmove(name + 16, name + 15, strlen(name + 15) + 1);
         memcpy(name, "BREAK100_policy_", 16);
+    } else if (strncmp(name, "BREAK100_train_", 15) == 0) {
+        /* BREAK100_train_X.csv -> BREAK100_policy_X.csv */
+        memmove(name + 16, name + 15, strlen(name + 15) + 1);
+        memcpy(name, "BREAK100_policy_", 16);
     } else {
         char tmp[1024];
         snprintf(tmp, sizeof tmp, "%s.policy.csv", csv);
@@ -276,9 +284,13 @@ static int find_common_csv(char *found, size_t cap) {
     const char *app = getenv("APPDATA");
     if (!app) return 0;
     char glob[MAX_PATH];
-    snprintf(glob, sizeof glob, "%s\\MetaQuotes\\Terminal\\Common\\Files\\BREAK100_learn_*.csv", app);
+    snprintf(glob, sizeof glob, "%s\\MetaQuotes\\Terminal\\Common\\Files\\BREAK100_train_*.csv", app);
     WIN32_FIND_DATAA fd;
     HANDLE h = FindFirstFileA(glob, &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        snprintf(glob, sizeof glob, "%s\\MetaQuotes\\Terminal\\Common\\Files\\BREAK100_learn_*.csv", app);
+        h = FindFirstFileA(glob, &fd);
+    }
     if (h == INVALID_HANDLE_VALUE) return 0;
     snprintf(found, cap, "%s\\MetaQuotes\\Terminal\\Common\\Files\\%s", app, fd.cFileName);
     FILETIME best = fd.ftLastWriteTime;
@@ -303,7 +315,7 @@ static void pause_out(void) {
 
 int main(int argc, char **argv) {
     printf("============================================\n");
-    printf(" BREAK100 Policy Trainer  v1.82\n");
+    printf(" BREAK100 Policy Trainer  v1.83\n");
     printf(" Offline UCB + REINFORCE for SL/TP + direction gate\n");
     printf(" Does NOT send broker orders. Not a profit claim.\n");
     printf("============================================\n\n");
@@ -320,7 +332,7 @@ int main(int argc, char **argv) {
     }
 #endif
     if (!csv[0]) {
-        printf("Drag BREAK100_learn_*.csv onto this exe, or type the full path:\n> ");
+        printf("Drag BREAK100_train_*.csv or BREAK100_learn_*.csv onto this exe, or type the full path:\n> ");
         if (!fgets(csv, sizeof csv, stdin)) return 1;
         char *nl = strchr(csv, '\n');
         if (nl) *nl = 0;

@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-21 | v1.83 Quality-gated BREAK100_train_*.csv: post-fill MFE/MAE path, spread/box filters, trainer prefers train over learn. Warehouse unchanged. Live locked. | MQL5 Train.mqh + trainer | Owner request |
 | 2026-08-21 | v1.82 RL direction gate (SKIP/BUY-only/SELL-only/OCO) + SL/TP UCB/REINFORCE. Trains on closed labels. Live locked. DEMO_AUTO demo only. | MQL5 learner + trainer | Owner request |
 | 2026-08-21 | v1.81 Telegram ML/RL status every 6 hours (capture, learner, box counts). Dedup across charts. Live remains locked. | MQL5 EA Telegram digest | Owner request |
 | 2026-08-21 | v1.80 M30 box OCO: WATCH arms BUY STOP + SELL STOP; first fill deletes the other. Shadow simulates. DEMO_AUTO places broker pendings on demo accounts only. Telegram WATCH/FILL/CANCEL/CLOSE with SL/TP points. Live remains locked. | MQL5 EA + DemoExec pending + Telegram | Owner request |
