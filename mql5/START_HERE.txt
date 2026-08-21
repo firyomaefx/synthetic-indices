@@ -1,15 +1,20 @@
 BREAK100 v1.85 — START HERE
 ===========================
-Telegram: one 🧪 test on attach, then 👀 WATCH / 🟢🔴 ENTRY / ❌ SL / ✅ TP
+Telegram: 🧪 test on attach, then 👀 WATCH / 🟢🔴 ENTRY / ❌ SL / ✅ TP
 Compile 1.85. M30. Live locked.
 
-Train (pick one)
-  A. BREAK100-Trainer.exe  — drag BREAK100_train_*.csv  (C, no Python)
-  B. Hugging Face tabular:
-       pip install -r requirements-hf.txt
-       python break100_hf_train.py
-       optional:  python break100_hf_train.py --push-hub YOURUSER/break100-boom
-     Writes the SAME BREAK100_policy_*.csv the EA already loads (source=HF_TABULAR).
-     Needs 16+ quality=1 rows. Not a profit claim.
+Training — two copies, same policy.csv
+  LOCAL (laptop, primary)
+    BREAK100-Trainer.exe
+    or  tools\\Train-BREAK100-HF.bat
+  HF BACKUP (always available, phone OK)
+    1. Create a private dataset  yourname/break100-boom
+    2. Once:  setx HF_TOKEN hf_xxx
+              setx BREAK100_HF_DATASET yourname/break100-boom
+    3. Run  tools\\Backup-BREAK100-HF.bat
+       → trains + uploads train.csv AND policy.csv to Hub
+    4. Space (optional always-on UI): duplicate tools/hf_space
+       Upload CSV from the phone → download policy.csv
+    5. Policy goes in Common\\Files  then reattach EA
 
-Files:  %%APPDATA%%\MetaQuotes\Terminal\Common\Files\
+Need 16+ quality=1 rows. Not a profit claim.

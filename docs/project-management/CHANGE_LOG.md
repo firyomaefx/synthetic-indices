@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-21 | HF as always-on backup trainer: Space UI + Backup-BREAK100-HF.bat pushes train+policy to private dataset. Same policy.csv as EA. Live locked. | tools/hf_space | Owner request |
 | 2026-08-21 | Hugging Face tabular trainer (datasets + sklearn) writes EA policy.csv; optional --push-hub. DistilBERT not default (n too small). Live locked. | tools/break100_hf_train.py | Owner request |
 | 2026-08-21 | v1.85 Telegram self-test card on attach (WATCH/ENTRY/SL/TP preview). Live locked. | MQL5 Telegram | Owner request |
 | 2026-08-21 | v1.84 Simple Telegram WATCH/ENTRY/SL HIT/TP HIT with emoji. Cross-chart dedup. SL/TP no longer 0.00. Live locked. | MQL5 Telegram | Owner request |
