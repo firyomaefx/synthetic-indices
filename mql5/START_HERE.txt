@@ -1,20 +1,15 @@
-BREAK100 v1.85 — START HERE
+BREAK100 v1.86 — START HERE
 ===========================
-Telegram: 🧪 test on attach, then 👀 WATCH / 🟢🔴 ENTRY / ❌ SL / ✅ TP
-Compile 1.85. M30. Live locked.
+Compile 1.86. M30. Live locked.
 
-Training — two copies, same policy.csv
-  LOCAL (laptop, primary)
-    BREAK100-Trainer.exe
-    or  tools\\Train-BREAK100-HF.bat
-  HF BACKUP (always available, phone OK)
-    1. Create a private dataset  yourname/break100-boom
-    2. Once:  setx HF_TOKEN hf_xxx
-              setx BREAK100_HF_DATASET yourname/break100-boom
-    3. Run  tools\\Backup-BREAK100-HF.bat
-       → trains + uploads train.csv AND policy.csv to Hub
-    4. Space (optional always-on UI): duplicate tools/hf_space
-       Upload CSV from the phone → download policy.csv
-    5. Policy goes in Common\\Files  then reattach EA
+Seamless train data (PC + Hugging Face stay the same)
+  1. Copy BREAK100_hf.txt.example -> Common\\Files\\BREAK100_hf.txt
+     token=hf_...
+     dataset=yourname/break100-boom
+  2. Run tools\\Install-BREAK100-HF-Sync.ps1
+     (every 15 min: merge train rows, retrain, push/pull policy)
+  3. EA writes a kick file on every closed episode so sync is not stale
+  4. Phone Space still works — next PC sync merges those rows in
 
-Need 16+ quality=1 rows. Not a profit claim.
+Same policy.csv the EA already loads. Need 16+ quality=1 rows.
+Not a profit claim.

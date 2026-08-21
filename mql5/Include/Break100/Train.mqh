@@ -171,6 +171,12 @@ void B100TrainWrite(const B100Episode &e)
              e.bars_held, w, (long)e.id, e.q_reason,
              e.buy_stop, e.sell_stop, e.entry, e.sl, e.tp1, e.tp2, e.tp3);
    FileClose(fh);
+   const int kick = FileOpen("BREAK100_sync_needed.txt", FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(kick != INVALID_HANDLE)
+     {
+      FileWriteString(kick, IntegerToString((int)TimeGMT()));
+      FileClose(kick);
+     }
   }
 
 void B100TrainFail(B100Episode &e, const string label)

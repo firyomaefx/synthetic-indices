@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.85"
-#property description "Telegram self-test on attach. ENTRY/SL/TP alerts. Live locked."
+#property version   "1.86"
+#property description "HF bidirectional train/policy sync. Telegram alerts. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -840,7 +840,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v1.85  Telegram OK\n";
+   string msg = "🧪 BREAK100  v1.86  Telegram OK\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
