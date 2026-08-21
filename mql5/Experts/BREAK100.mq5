@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.84"
-#property description "Simple Telegram ENTRY/SL/TP alerts. DEMO_AUTO demo only. Live locked."
+#property version   "1.85"
+#property description "Telegram self-test on attach. ENTRY/SL/TP alerts. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -168,6 +168,7 @@ datetime B100StatusReadGmt(void);
 void     B100StatusWriteGmt(const datetime t);
 void     B100MaybeStatus(void);
 void     B100TelegramStatus(void);
+void     B100TelegramSelfTest(void);
 
 int OnInit()
   {
@@ -193,7 +194,10 @@ int OnInit()
    B100CaptureInit(g_capture, InpCapture);
    B100TrainInit(g_episode);
    if(InpTelegram)
+     {
       B100TelegramLoad();
+      B100TelegramSelfTest();
+     }
    B100LearnerLoad(g_learner);
    if(B100PolicyLoad(g_policy))
      {
@@ -825,6 +829,30 @@ void B100TelegramStatus(void)
    msg += "note: Observe/Shadow data job. No live orders. Not a profit claim.";
    B100Tg(msg);
    Print("B100 ML/RL status sent");
+  }
+
+void B100TelegramSelfTest(void)
+  {
+   if(!InpTelegram)
+      return;
+   if(!g_tg_ok)
+     {
+      Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
+      return;
+     }
+   string msg = "🧪 BREAK100  v1.85  Telegram OK\n";
+   msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
+   msg += "\nYou will get these alerts:\n";
+   msg += "👀 WATCH     both stops + SL/TP1\n";
+   msg += "🟢 ENTRY BUY    🔴 ENTRY SELL\n";
+   msg += "❌ SL HIT\n";
+   msg += "✅ TP HIT\n";
+   msg += "⏰ TIME EXIT    ⚪ CANCEL\n";
+   msg += "\nThis is a one-time test. No live orders.";
+   if(B100TelegramOnce("BOOT|1.85|" + _Symbol, msg))
+      Print("B100 Telegram TEST sent");
+   else
+      Print("B100 Telegram TEST skipped (already sent) or HTTP fail — check Experts log and WebRequest https://api.telegram.org");
   }
 
 void B100MaybeStatus(void)

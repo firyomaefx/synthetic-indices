@@ -1,6 +1,9 @@
-BREAK100 v1.84 — START HERE
+BREAK100 v1.85 — START HERE
 ===========================
-Telegram: WATCH / ENTRY / SL HIT / TP HIT (with emoji). Deduped.
-OBSERVE/SHADOW = no orders. DEMO_AUTO = demo only. LIVE locked.
+On attach, Telegram gets one 🧪 test card (WATCH / ENTRY / SL / TP).
+Then live alerts: 👀 WATCH  🟢/🔴 ENTRY  ❌ SL HIT  ✅ TP HIT
 
-Compile 1.84. Attach BREAK100 M30.
+MT5: Tools → Options → Expert Advisors
+  Allow WebRequest:  https://api.telegram.org
+
+Compile 1.85. Attach BREAK100 M30. Live locked.
