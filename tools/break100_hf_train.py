@@ -1,0 +1,373 @@
+#!/usr/bin/env python3
+"""BREAK100 Hugging Face trainer.
+
+Reads quality-gated BREAK100_train_*.csv (or learn.csv), trains:
+  - direction posterior (UP / DOWN / FAIL)  — sklearn, via HF datasets
+  - SL/TP multipliers                       — MAE/MFE quantiles + 4-arm UCB
+
+Writes BREAK100_policy_<symbol>.csv that the EA already loads.
+Does NOT send broker orders. Not a profit claim.
+
+Optional: --push-hub username/break100-boom  uploads dataset + policy.
+
+Why not DistilBERT by default: 16–400 tabular rows overfit a transformer.
+When you have 500+ quality=1 rows, pass --text-model.
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import glob
+import math
+import os
+import sys
+from pathlib import Path
+
+ARMS = [
+    ("balanced", 1.00, 1.00, 2.00, 3.00),
+    ("tight", 0.85, 0.80, 1.50, 2.20),
+    ("wide", 1.35, 1.20, 2.40, 4.00),
+    ("runner", 1.10, 1.60, 3.00, 5.00),
+]
+MIN_N = 16
+COST = 0.12
+
+
+def clamp(x, lo, hi):
+    return lo if x < lo else hi if x > hi else x
+
+
+def realized_r(mfe, mae, hw, sl_r, tp3_r):
+    hw = hw if hw > 1e-9 else 1e-9
+    stop = sl_r * hw
+    tp3 = tp3_r * hw
+    if abs(mae) >= stop:
+        return -1.0 - COST
+    captured = max(0.0, mfe)
+    if captured > tp3:
+        captured = tp3
+    return captured / stop - COST
+
+
+def find_common_csv():
+    app = os.environ.get("APPDATA", "")
+    if app:
+        root = Path(app) / "MetaQuotes" / "Terminal" / "Common" / "Files"
+        trains = sorted(root.glob("BREAK100_train_*.csv"), key=lambda p: p.stat().st_mtime)
+        if trains:
+            return trains[-1]
+        learns = sorted(root.glob("BREAK100_learn_*.csv"), key=lambda p: p.stat().st_mtime)
+        if learns:
+            return learns[-1]
+    here = Path.cwd()
+    hits = sorted(here.glob("BREAK100_train_*.csv")) + sorted(here.glob("BREAK100_learn_*.csv"))
+    return hits[-1] if hits else None
+
+
+def load_rows(path: Path):
+    rows = []
+    with path.open(newline="", encoding="utf-8", errors="replace") as f:
+        r = csv.DictReader(f)
+        fields = r.fieldnames or []
+        wide = "quality" in fields
+        for rec in r:
+            try:
+                if wide:
+                    q = int(float(rec.get("quality", "1") or 1))
+                    if q == 0:
+                        continue
+                    side = int(float(rec.get("side", "0") or 0))
+                    label = rec.get("label", "")
+                    mfe = float(rec.get("mfe", "0") or 0)
+                    mae = float(rec.get("mae", "0") or 0)
+                    hw = float(rec.get("hw", "0") or 0)
+                    arm = int(float(rec.get("arm", "0") or 0))
+                    extra = {
+                        "height": float(rec.get("height") or 0),
+                        "atr": float(rec.get("atr") or 0),
+                        "spread": float(rec.get("spread") or 0),
+                        "bars_box": float(rec.get("bars_box") or 0),
+                        "hour": float(rec.get("hour") or 0),
+                        "dow": float(rec.get("dow") or 0),
+                        "mfe_r": float(rec.get("mfe_r") or 0),
+                        "mae_r": float(rec.get("mae_r") or 0),
+                    }
+                else:
+                    # learn.csv: side,label,mfe,mae,hw,arm
+                    side = int(float(rec.get("side", "0") or 0))
+                    label = rec.get("label", "")
+                    mfe = float(rec.get("mfe", "0") or 0)
+                    mae = float(rec.get("mae", "0") or 0)
+                    hw = float(rec.get("hw", "0") or 0)
+                    arm = int(float(rec.get("arm", "0") or 0))
+                    extra = {}
+            except (TypeError, ValueError):
+                continue
+            if hw <= 0:
+                continue
+            if arm < 0 or arm > 3:
+                arm = 0
+            y = "FAIL"
+            if "BREAKOUT_UP" in label:
+                y = "UP"
+            elif "BREAKOUT_DOWN" in label:
+                y = "DOWN"
+            rec_out = {"side": side, "label": label, "mfe": mfe, "mae": mae, "hw": hw, "arm": arm, "y": y}
+            rec_out.update(extra)
+            rows.append(rec_out)
+    return rows
+
+
+def as_hf_dataset(rows):
+    try:
+        from datasets import Dataset
+    except ImportError:
+        return None
+    return Dataset.from_list(rows)
+
+
+def quantile(vals, q):
+    if not vals:
+        return 0.0
+    xs = sorted(vals)
+    idx = int(math.floor(q * (len(xs) - 1)))
+    idx = max(0, min(len(xs) - 1, idx))
+    return xs[idx]
+
+
+def pick_ucb(rows):
+    n = len(rows)
+    counts = [0] * 4
+    sums = [0.0] * 4
+    for r in rows:
+        a = r["arm"]
+        sl, t3 = ARMS[a][1], ARMS[a][4]
+        counts[a] += 1
+        sums[a] += realized_r(r["mfe"], r["mae"], r["hw"], sl, t3)
+    if n < MIN_N:
+        return 0
+    logn = math.log(n + 1.0)
+    best, best_sc = 0, -1e100
+    for a in range(4):
+        if counts[a] == 0:
+            return a
+        mean = sums[a] / counts[a]
+        sc = mean + 1.15 * math.sqrt(logn / counts[a])
+        if sc > best_sc:
+            best_sc, best = sc, a
+    return best
+
+
+def blend(rows, arm):
+    mae_r, mfe_r = [], []
+    for r in rows:
+        hw = max(r["hw"], 1e-9)
+        mae_r.append(abs(r["mae"]) / hw)
+        if "BREAKOUT" in r["label"]:
+            mfe_r.append(max(0.0, r["mfe"]) / hw)
+    sl0, t1, t2, t3 = ARMS[arm][1], ARMS[arm][2], ARMS[arm][3], ARMS[arm][4]
+    qsl = quantile(mae_r, 0.75) if mae_r else sl0
+    q1 = quantile(mfe_r, 0.40) if mfe_r else t1
+    q2 = quantile(mfe_r, 0.65) if mfe_r else t2
+    q3 = quantile(mfe_r, 0.85) if mfe_r else t3
+    qsl = clamp(qsl, 0.7, 2.4)
+    q1 = clamp(q1, 0.5, 3.0)
+    q2 = clamp(max(q2, q1 + 0.15), q1 + 0.15, 5.0)
+    q3 = clamp(max(q3, q2 + 0.15), q2 + 0.15, 8.0)
+    sl = clamp(0.55 * sl0 + 0.45 * qsl, 0.7, 2.5)
+    p1 = clamp(0.55 * t1 + 0.45 * q1, 0.5, 4.0)
+    p2 = clamp(0.55 * t2 + 0.45 * q2, p1 + 0.2, 6.0)
+    p3 = clamp(0.55 * t3 + 0.45 * q3, p2 + 0.2, 8.0)
+    rs = [realized_r(r["mfe"], r["mae"], r["hw"], sl, p3) for r in rows]
+    mean_r = sum(rs) / len(rs) if rs else 0.0
+    return sl, p1, p2, p3, mean_r
+
+
+def dir_posterior(rows):
+    up = sum(1 for r in rows if r["y"] == "UP")
+    dn = sum(1 for r in rows if r["y"] == "DOWN")
+    fail = sum(1 for r in rows if r["y"] == "FAIL")
+    tot = up + dn + fail + 3.0
+    pu, pd, pf = (up + 1) / tot, (dn + 1) / tot, (fail + 1) / tot
+    gate = "BOTH"
+    if len(rows) >= MIN_N:
+        if pf > pu and pf > pd and pf >= 0.42:
+            gate = "SKIP"
+        elif pu >= pd + 0.12 and pu >= 0.38:
+            gate = "BUY"
+        elif pd >= pu + 0.12 and pd >= 0.38:
+            gate = "SELL"
+    return pu, pd, pf, gate
+
+
+def hf_direction_fit(rows):
+    """Tabular logistic via sklearn; features from train.csv when present."""
+    feat_keys = [k for k in ("height", "atr", "spread", "bars_box", "hour", "dow") if k in rows[0]]
+    if not feat_keys or len(rows) < MIN_N:
+        return dir_posterior(rows)
+    try:
+        import numpy as np
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.preprocessing import StandardScaler
+    except ImportError:
+        print("sklearn not installed — using count posterior only")
+        return dir_posterior(rows)
+    X = np.array([[float(r.get(k, 0.0)) for k in feat_keys] for r in rows], dtype=float)
+    ymap = {"UP": 0, "DOWN": 1, "FAIL": 2}
+    y = np.array([ymap[r["y"]] for r in rows], dtype=int)
+    if len(set(y.tolist())) < 2:
+        return dir_posterior(rows)
+    scaler = StandardScaler()
+    Xs = scaler.fit_transform(X)
+    clf = LogisticRegression(max_iter=400, class_weight="balanced")
+    clf.fit(Xs, y)
+    proba = clf.predict_proba(Xs).mean(axis=0)
+    # map classes back
+    classes = list(clf.classes_)
+    pu = pd = pf = 1.0 / 3.0
+    for i, c in enumerate(classes):
+        if c == 0:
+            pu = float(proba[i])
+        elif c == 1:
+            pd = float(proba[i])
+        else:
+            pf = float(proba[i])
+    s = pu + pd + pf
+    if s > 0:
+        pu, pd, pf = pu / s, pd / s, pf / s
+    # blend with Dirichlet so a tiny set cannot lock SKIP
+    cu, cd, cf, _ = dir_posterior(rows)
+    pu, pd, pf = 0.5 * pu + 0.5 * cu, 0.5 * pd + 0.5 * cd, 0.5 * pf + 0.5 * cf
+    gate = "BOTH"
+    if pf > pu and pf > pd and pf >= 0.42:
+        gate = "SKIP"
+    elif pu >= pd + 0.12 and pu >= 0.38:
+        gate = "BUY"
+    elif pd >= pu + 0.12 and pd >= 0.38:
+        gate = "SELL"
+    return pu, pd, pf, gate
+
+
+def policy_path(csv_path: Path) -> Path:
+    name = csv_path.name
+    if name.startswith("BREAK100_train_"):
+        name = "BREAK100_policy_" + name[len("BREAK100_train_") :]
+    elif name.startswith("BREAK100_learn_"):
+        name = "BREAK100_policy_" + name[len("BREAK100_learn_") :]
+    else:
+        name = csv_path.name + ".policy.csv"
+    return csv_path.with_name(name)
+
+
+def write_policy(path: Path, ready, source, n, arm, sl, t1, t2, t3, mean_r, pu, pd, pf, gate):
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(
+            ["ready", "source", "n", "arm", "sl_r", "tp1_r", "tp2_r", "tp3_r", "mean_r", "p_up", "p_dn", "p_fail", "gate"]
+        )
+        w.writerow(
+            [
+                int(ready),
+                source,
+                n,
+                arm,
+                f"{sl:.6f}",
+                f"{t1:.6f}",
+                f"{t2:.6f}",
+                f"{t3:.6f}",
+                f"{mean_r:.6f}",
+                f"{pu:.6f}",
+                f"{pd:.6f}",
+                f"{pf:.6f}",
+                gate,
+            ]
+        )
+
+
+def push_hub(repo, csv_path: Path, policy: Path, rows, token):
+    try:
+        from huggingface_hub import HfApi, login
+    except ImportError:
+        print("huggingface_hub not installed — skip push")
+        return
+    if token:
+        login(token=token)
+    api = HfApi()
+    api.create_repo(repo, exist_ok=True, repo_type="dataset", private=True)
+    api.upload_file(path_or_fileobj=str(csv_path), path_in_repo=csv_path.name, repo_id=repo, repo_type="dataset")
+    api.upload_file(path_or_fileobj=str(policy), path_in_repo=policy.name, repo_id=repo, repo_type="dataset")
+    readme = (
+        "# BREAK100 train set\n\n"
+        f"n={len(rows)} quality-gated episodes. Research data. Not a profit claim.\n"
+    )
+    api.upload_file(path_or_fileobj=readme.encode(), path_in_repo="README.md", repo_id=repo, repo_type="dataset")
+    print(f"Pushed dataset {repo}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description="BREAK100 HF trainer — writes EA policy.csv")
+    ap.add_argument("csv", nargs="?", help="BREAK100_train_*.csv path")
+    ap.add_argument("--push-hub", default="", help="HF dataset repo id, e.g. user/break100-boom")
+    ap.add_argument("--hf-token", default=os.environ.get("HF_TOKEN", ""))
+    args = ap.parse_args()
+
+    print("============================================")
+    print(" BREAK100 Hugging Face trainer  v1.85")
+    print(" Tabular (datasets + sklearn). Not a profit claim.")
+    print(" Does NOT send broker orders.")
+    print("============================================\n")
+
+    path = Path(args.csv) if args.csv else find_common_csv()
+    if path is None or not Path(path).exists():
+        print("No BREAK100_train_*.csv found.")
+        print("Pass the file, or put it in Common\\Files and re-run.")
+        return 1
+    path = Path(path)
+    print(f"Input  {path}")
+
+    rows = load_rows(path)
+    ds = as_hf_dataset(rows)
+    if ds is not None:
+        print(f"HF Dataset n={len(ds)}  cols={list(ds.features)}")
+    else:
+        print(f"rows n={len(rows)}  (pip install datasets  to use Hugging Face Dataset)")
+
+    n = len(rows)
+    if n < MIN_N:
+        print(f"Only {n} quality rows — need {MIN_N}. Writing DEFAULT policy (OCO, balanced).")
+        pu, pd, pf, gate = dir_posterior(rows)
+        out = policy_path(path)
+        write_policy(out, 0, "DEFAULT", n, 0, *ARMS[0][1:], 0.0, pu, pd, pf, "BOTH")
+        print(f"Wrote {out}")
+        return 0
+
+    split = max(MIN_N, int(n * 0.7))
+    train, hold = rows[:split], rows[split:]
+    arm = pick_ucb(train)
+    sl, t1, t2, t3, mean_r = blend(train, arm)
+    pu, pd, pf, gate = hf_direction_fit(train)
+    oos = 0.0
+    if hold:
+        oos = sum(realized_r(r["mfe"], r["mae"], r["hw"], sl, t3) for r in hold) / len(hold)
+
+    print(f"Train n={n}  arm={ARMS[arm][0]} ({arm})")
+    print(f"SL/hw  {sl:.3f}")
+    print(f"TP/hw  {t1:.3f} / {t2:.3f} / {t3:.3f}")
+    print(f"In-sample mean R   {mean_r:.4f}")
+    print(f"Holdout R          {oos:.4f}")
+    print(f"Direction p_up={pu:.3f} p_dn={pd:.3f} p_fail={pf:.3f}  gate={gate}")
+    print("Holdout R is a research score. It is not expected profit.\n")
+
+    out = policy_path(path)
+    write_policy(out, 1, "HF_TABULAR", n, arm, sl, t1, t2, t3, mean_r, pu, pd, pf, gate)
+    print(f"Wrote policy:\n  {out}")
+    print("Copy into Common\\Files if it is not already there, then reattach the EA.")
+    print("Keep InpUseLearner = true. AutoTrading stays OFF on real.\n")
+
+    if args.push_hub:
+        push_hub(args.push_hub, path, out, rows, args.hf_token)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

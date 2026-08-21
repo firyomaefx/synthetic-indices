@@ -1,9 +1,15 @@
 BREAK100 v1.85 — START HERE
 ===========================
-On attach, Telegram gets one 🧪 test card (WATCH / ENTRY / SL / TP).
-Then live alerts: 👀 WATCH  🟢/🔴 ENTRY  ❌ SL HIT  ✅ TP HIT
+Telegram: one 🧪 test on attach, then 👀 WATCH / 🟢🔴 ENTRY / ❌ SL / ✅ TP
+Compile 1.85. M30. Live locked.
 
-MT5: Tools → Options → Expert Advisors
-  Allow WebRequest:  https://api.telegram.org
+Train (pick one)
+  A. BREAK100-Trainer.exe  — drag BREAK100_train_*.csv  (C, no Python)
+  B. Hugging Face tabular:
+       pip install -r requirements-hf.txt
+       python break100_hf_train.py
+       optional:  python break100_hf_train.py --push-hub YOURUSER/break100-boom
+     Writes the SAME BREAK100_policy_*.csv the EA already loads (source=HF_TABULAR).
+     Needs 16+ quality=1 rows. Not a profit claim.
 
-Compile 1.85. Attach BREAK100 M30. Live locked.
+Files:  %%APPDATA%%\MetaQuotes\Terminal\Common\Files\

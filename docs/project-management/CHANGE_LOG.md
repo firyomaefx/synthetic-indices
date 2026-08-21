@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-21 | Hugging Face tabular trainer (datasets + sklearn) writes EA policy.csv; optional --push-hub. DistilBERT not default (n too small). Live locked. | tools/break100_hf_train.py | Owner request |
 | 2026-08-21 | v1.85 Telegram self-test card on attach (WATCH/ENTRY/SL/TP preview). Live locked. | MQL5 Telegram | Owner request |
 | 2026-08-21 | v1.84 Simple Telegram WATCH/ENTRY/SL HIT/TP HIT with emoji. Cross-chart dedup. SL/TP no longer 0.00. Live locked. | MQL5 Telegram | Owner request |
 | 2026-08-21 | v1.83 Quality-gated BREAK100_train_*.csv: post-fill MFE/MAE path, spread/box filters, trainer prefers train over learn. Warehouse unchanged. Live locked. | MQL5 Train.mqh + trainer | Owner request |
