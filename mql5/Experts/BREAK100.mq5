@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.91"
-#property description "Tight M30 box (last 4–8 bars, 25% of 1 H4). Live locked."
+#property version   "1.92"
+#property description "Impulse then range then break. M30 close OCO. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -24,6 +24,7 @@ input int            InpBoxMaxBars     = 8;            // Max M30 bars (one H4)
 input int            InpBoxAtrPeriod   = 14;           // unused (kept for old .set files)
 input double         InpBoxH4Frac      = 0.25;         // Box height ≤ this × last 1 H4 candle
 input double         InpBoxWiden       = 0.10;         // Older bar may poke at most this × height
+input double         InpImpulseK       = 1.50;         // Prior M30 must be ≥ this × box height (impulse)
 input double         InpBoxSlBuf       = 0.15;         // SL beyond opposite rail, in box heights
 input int            InpBoxTimeout     = 10;           // Armed closes without fill → cancel
 input bool           InpBoxNoFade      = true;         // Never fade the pause
@@ -200,7 +201,7 @@ int OnInit()
    ZeroMemory(g_levels);
    B100LearnerInit(g_learner);
    B100BoxInit(g_box);
-   B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxH4Frac, InpBoxWiden);
+   B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxH4Frac, InpBoxWiden, InpImpulseK);
    B100CaptureInit(g_capture, InpCapture);
    B100TrainInit(g_episode);
    if(InpTelegram)
@@ -346,7 +347,7 @@ void OnTick()
    if(InpStrategy == B100_STRAT_BOX_M30)
      {
       labeled = B100BoxOnTick(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars,
-                              InpBoxAtrPeriod, InpBoxH4Frac, InpBoxWiden, InpBoxTimeout, bid, ask);
+                              InpBoxAtrPeriod, InpBoxH4Frac, InpBoxWiden, InpImpulseK, InpBoxTimeout, bid, ask);
       if(g_box.just_armed)
         {
          string gate = "BOTH";

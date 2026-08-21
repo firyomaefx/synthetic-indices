@@ -1,8 +1,7 @@
 #ifndef BREAK100_BOX_MQH
 #define BREAK100_BOX_MQH
 
-// Tight M30 pause: last 4–8 bars that stay in-zone, height ≤ 25% of last H4.
-// Break = M30 close outside. SL/TP in box heights. No fade. No ATR decisions.
+// Impulse (long M30) then tight range, then break on M30 close. No fade. No ATR.
 
 enum ENUM_B100_STRAT
   {
@@ -63,6 +62,10 @@ struct B100Box
    double               close_loc;
    double               compress;
    double               h_vs_h4;
+   int                  imp_dir;
+   double               imp_h;
+   double               imp_vs_box;
+   double               box_at;
   };
 
 void B100BoxInit(B100Box &b)
@@ -120,6 +123,42 @@ void B100RangePattern(const ENUM_TIMEFRAMES tf,
      }
   }
 
+bool B100ImpulseBefore(const ENUM_TIMEFRAMES tf,
+                       const int end_shift,
+                       const int n_bars,
+                       const double box_h,
+                       const double impulse_k,
+                       int &imp_dir,
+                       double &imp_h,
+                       double &imp_vs_box,
+                       double &box_at)
+  {
+   imp_dir = 0;
+   imp_h = 0.0;
+   imp_vs_box = 0.0;
+   box_at = 0.5;
+   if(box_h <= 0.0 || n_bars < 1)
+      return false;
+   const int ish = end_shift + n_bars;
+   const double ih = iHigh(_Symbol, tf, ish);
+   const double il = iLow(_Symbol, tf, ish);
+   const double io = iOpen(_Symbol, tf, ish);
+   const double ic = iClose(_Symbol, tf, ish);
+   imp_h = ih - il;
+   if(imp_h <= 0.0)
+      return false;
+   const double body = MathAbs(ic - io);
+   const double k = MathMax(1.2, impulse_k);
+   if(imp_h < k * box_h)
+      return false;
+   if(body < 0.45 * imp_h)
+      return false;
+   imp_dir = (ic >= io) ? 1 : -1;
+   imp_vs_box = imp_h / box_h;
+   box_at = (ic - il) / imp_h;
+   return true;
+  }
+
 bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
                        const int end_shift,
                        const int min_bars,
@@ -127,6 +166,7 @@ bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
                        const int atr_period,
                        const double h4_frac,
                        const double widen_frac,
+                       const double impulse_k,
                        double &hi,
                        double &lo,
                        datetime &t_left,
@@ -182,6 +222,10 @@ bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
      }
    if(n_bars < minb)
       return false;
+   int idir = 0;
+   double ih = 0, iv = 0, ba = 0;
+   if(!B100ImpulseBefore(tf, end_shift, n_bars, hi - lo, impulse_k, idir, ih, iv, ba))
+      return false;
    t_left = iTime(_Symbol, tf, end_shift + n_bars - 1);
    t_right = iTime(_Symbol, tf, end_shift);
    return true;
@@ -212,7 +256,8 @@ void B100BoxScanHistory(B100Box &b,
                         const int max_bars,
                         const int atr_period,
                         const double h4_frac,
-                        const double widen_frac)
+                        const double widen_frac,
+                        const double impulse_k)
   {
    b.hist_n = 0;
    int shift = 2;
@@ -222,7 +267,7 @@ void B100BoxScanHistory(B100Box &b,
       double hi, lo, atr;
       datetime t0, t1;
       int n = 0;
-      if(B100FindClusterAt(tf, shift, min_bars, max_bars, atr_period, h4_frac, widen_frac, hi, lo, t0, t1, n, atr))
+      if(B100FindClusterAt(tf, shift, min_bars, max_bars, atr_period, h4_frac, widen_frac, impulse_k, hi, lo, t0, t1, n, atr))
         {
          B100BoxPushHist(b, t0, t1, hi, lo);
          shift += n;
@@ -239,6 +284,7 @@ string B100BoxOnTick(B100Box &b,
                      const int atr_period,
                      const double h4_frac,
                      const double widen_frac,
+                     const double impulse_k,
                      const int timeout_bars,
                      const double bid,
                      const double ask)
@@ -319,7 +365,7 @@ string B100BoxOnTick(B100Box &b,
    double hi, lo, atr;
    datetime t0, t1;
    int n = 0;
-   if(!B100FindClusterAt(tf, 1, min_bars, max_bars, atr_period, h4_frac, widen_frac, hi, lo, t0, t1, n, atr))
+   if(!B100FindClusterAt(tf, 1, min_bars, max_bars, atr_period, h4_frac, widen_frac, impulse_k, hi, lo, t0, t1, n, atr))
      {
       b.ready = false;
       return "";
@@ -351,6 +397,7 @@ string B100BoxOnTick(B100Box &b,
    b.dir_gate   = "BOTH";
    B100RangePattern(tf, 1, n, hi, lo, B100H4Span(),
                     b.touches_hi, b.touches_lo, b.close_loc, b.compress, b.h_vs_h4);
+   B100ImpulseBefore(tf, 1, n, hi - lo, impulse_k, b.imp_dir, b.imp_h, b.imp_vs_box, b.box_at);
    B100BoxPushHist(b, t0, t1, hi, lo);
    return "";
   }
@@ -389,7 +436,9 @@ string B100BoxWatchNote(const B100Box &b, const double mid)
       return "RL BUY-only  BUY STOP " + DoubleToString(b.buy_stop, _Digits);
    if(b.dir_gate == "SELL")
       return "RL SELL-only  SELL STOP " + DoubleToString(b.sell_stop, _Digits);
+   const string idir = (b.imp_dir > 0 ? "after UP move" : (b.imp_dir < 0 ? "after DN move" : ""));
    return "RANGE " + IntegerToString(b.bars) + " bars  H " + DoubleToString(b.height, _Digits) +
+          "  " + idir +
           "  OCO BUY " + DoubleToString(b.buy_stop, _Digits) +
           "  SELL " + DoubleToString(b.sell_stop, _Digits);
   }

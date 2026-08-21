@@ -49,6 +49,10 @@ struct B100Episode
    double   close_loc;
    double   compress;
    double   h_vs_h4;
+   int      imp_dir;
+   double   imp_h;
+   double   imp_vs_box;
+   double   box_at;
   };
 
 void B100TrainInit(B100Episode &e)
@@ -75,7 +79,8 @@ void B100TrainEnsureHeader(const int fh)
                 "hour", "dow", "hit_tp1", "hit_tp2", "hit_tp3", "hit_sl",
                 "bars_held", "weight", "episode_id", "q_reason",
                 "buy_stop", "sell_stop", "entry", "sl", "tp1", "tp2", "tp3",
-                "touches_hi", "touches_lo", "close_loc", "compress", "h_vs_h4");
+                "touches_hi", "touches_lo", "close_loc", "compress", "h_vs_h4",
+                "imp_dir", "imp_h", "imp_vs_box", "box_at");
    else
       FileSeek(fh, 0, SEEK_END);
   }
@@ -158,6 +163,10 @@ void B100TrainArm(B100Episode &e, const B100Box &b, const double bid, const doub
    e.close_loc  = b.close_loc;
    e.compress   = b.compress;
    e.h_vs_h4    = b.h_vs_h4;
+   e.imp_dir    = b.imp_dir;
+   e.imp_h      = b.imp_h;
+   e.imp_vs_box = b.imp_vs_box;
+   e.box_at     = b.box_at;
   }
 
 void B100TrainWrite(const B100Episode &e)
@@ -176,7 +185,8 @@ void B100TrainWrite(const B100Episode &e)
              e.hour_gmt, e.dow, e.hit_tp1, e.hit_tp2, e.hit_tp3, e.hit_sl,
              e.bars_held, w, (long)e.id, e.q_reason,
              e.buy_stop, e.sell_stop, e.entry, e.sl, e.tp1, e.tp2, e.tp3,
-             e.touches_hi, e.touches_lo, e.close_loc, e.compress, e.h_vs_h4);
+             e.touches_hi, e.touches_lo, e.close_loc, e.compress, e.h_vs_h4,
+             e.imp_dir, e.imp_h, e.imp_vs_box, e.box_at);
    FileClose(fh);
    const int kick = FileOpen("BREAK100_sync_needed.txt", FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
    if(kick != INVALID_HANDLE)
