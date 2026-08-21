@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.86"
-#property description "HF bidirectional train/policy sync. Telegram alerts. Live locked."
+#property version   "1.87"
+#property description "Box+RL: H4-nested pause, M30 close fill, SL in box heights. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -21,9 +21,10 @@ input ENUM_B100_STRAT InpStrategy      = B100_STRAT_BOX_M30; // CHANNEL tick ban
 input ENUM_TIMEFRAMES InpBoxTF         = PERIOD_M30;   // Box timeframe
 input int            InpBoxMinBars     = 3;            // Min bars in a pause cluster
 input int            InpBoxMaxBars     = 8;            // Max bars in a pause cluster
-input int            InpBoxAtrPeriod   = 14;           // ATR for "tight" test
-input double         InpBoxAtrMax      = 0.95;         // Cluster range must be <= this × ATR
-input int            InpBoxTimeout     = 10;           // Armed bars without fill → cancel
+input int            InpBoxAtrPeriod   = 14;           // unused (kept for old .set files)
+input double         InpBoxH4Frac      = 0.50;         // Pause height ≤ this × last 3 H4 range
+input double         InpBoxSlBuf       = 0.15;         // SL beyond opposite rail, in box heights
+input int            InpBoxTimeout     = 10;           // Armed closes without fill → cancel
 input bool           InpBoxNoFade      = true;         // Never fade the pause
 
 input int            InpMadWindow      = 160;          // MAD window
@@ -190,7 +191,7 @@ int OnInit()
    ZeroMemory(g_levels);
    B100LearnerInit(g_learner);
    B100BoxInit(g_box);
-   B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxAtrMax);
+   B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxH4Frac);
    B100CaptureInit(g_capture, InpCapture);
    B100TrainInit(g_episode);
    if(InpTelegram)
@@ -335,7 +336,7 @@ void OnTick()
    if(InpStrategy == B100_STRAT_BOX_M30)
      {
       labeled = B100BoxOnTick(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars,
-                              InpBoxAtrPeriod, InpBoxAtrMax, InpBoxTimeout, bid, ask);
+                              InpBoxAtrPeriod, InpBoxH4Frac, InpBoxTimeout, bid, ask);
       if(g_box.just_armed)
         {
          string gate = "BOTH";
@@ -1117,13 +1118,21 @@ void B100FillBoxLevels(const int dir, const double entry, const double ask, cons
      }
    const double stop_px = (dir > 0) ? g_box.buy_stop : g_box.sell_stop;
    const double other   = (dir > 0) ? g_box.low : g_box.high;
+   double sl_r = 1.0 + MathMax(0.0, InpBoxSlBuf);
+   if(InpUseLearner && g_policy.sl_r > 0.0)
+      sl_r = MathMax(g_policy.sl_r, 1.0 + InpBoxSlBuf);
    g_levels.valid = true;
    g_levels.dir   = dir;
    g_levels.entry = stop_px;
-   g_levels.r     = MathAbs(stop_px - other);
-   g_levels.sl    = other;
+   g_levels.sl    = stop_px - dir * H * sl_r;
+   const double rail = other - dir * MathMax(InpBoxSlBuf, 0.0) * H;
+   if(dir > 0)
+      g_levels.sl = MathMin(g_levels.sl, rail);
+   else
+      g_levels.sl = MathMax(g_levels.sl, rail);
    if((dir > 0 && g_levels.sl >= g_levels.entry) || (dir < 0 && g_levels.sl <= g_levels.entry))
-      g_levels.sl = g_levels.entry - dir * MathMax(2.0 * spread, 0.5 * H);
+      g_levels.sl = g_levels.entry - dir * MathMax(4.0 * spread, 0.5 * H);
+   g_levels.r = MathAbs(g_levels.entry - g_levels.sl);
    g_levels.tp1 = g_levels.entry + dir * H * MathMax(tp1m, 0.5);
    g_levels.tp2 = g_levels.entry + dir * H * MathMax(tp2m, tp1m + 0.2);
    g_levels.tp3 = g_levels.entry + dir * H * MathMax(tp3m, tp2m + 0.2);

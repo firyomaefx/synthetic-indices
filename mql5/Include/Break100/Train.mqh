@@ -104,19 +104,14 @@ int B100TrainScore(const B100Box &b, const double bid, const double ask, string 
       return 0;
      }
    const double spread = ask - bid;
-   if(spread > 0.30 * b.height)
+   if(spread > 0.25 * b.height)
      {
       why = "spread_vs_height";
       return 0;
      }
-   if(spread > 0.25 * b.atr)
+   if(b.height < 4.0 * spread)
      {
-      why = "spread_vs_atr";
-      return 0;
-     }
-   if(b.height > 1.05 * 0.95 * b.atr && b.height > b.atr)
-     {
-      why = "not_tight";
+      why = "box_vs_spread";
       return 0;
      }
    return 1;
