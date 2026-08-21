@@ -68,4 +68,52 @@ bool B100TelegramSend(string text)
    return true;
   }
 
+string B100TgOnceFile(void)
+  {
+   return "BREAK100_tg_once.txt";
+  }
+
+bool B100TgSeen(const string key)
+  {
+   if(key == "")
+      return false;
+   const int fh = FileOpen(B100TgOnceFile(), FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
+   if(fh == INVALID_HANDLE)
+      return false;
+   bool seen = false;
+   while(!FileIsEnding(fh))
+     {
+      string line = FileReadString(fh);
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      if(line == key)
+        {
+         seen = true;
+         break;
+        }
+     }
+   FileClose(fh);
+   return seen;
+  }
+
+void B100TgRemember(const string key)
+  {
+   const int fh = FileOpen(B100TgOnceFile(), FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(fh == INVALID_HANDLE)
+      return;
+   FileSeek(fh, 0, SEEK_END);
+   FileWriteString(fh, key + "\n");
+   FileClose(fh);
+  }
+
+bool B100TelegramOnce(const string key, const string text)
+  {
+   if(!g_tg_ok || text == "")
+      return false;
+   if(B100TgSeen(key))
+      return false;
+   B100TgRemember(key);
+   return B100TelegramSend(text);
+  }
+
 #endif

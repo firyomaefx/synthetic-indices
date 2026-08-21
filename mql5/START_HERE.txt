@@ -1,12 +1,6 @@
-BREAK100 v1.83 — START HERE
+BREAK100 v1.84 — START HERE
 ===========================
-GitHub. M30 pause box + OCO. RL: SKIP / BUY-only / SELL-only / SL-TP.
+Telegram: WATCH / ENTRY / SL HIT / TP HIT (with emoji). Deduped.
 OBSERVE/SHADOW = no orders. DEMO_AUTO = demo only. LIVE locked.
 
-Train data (additional, quality-gated)
-  Common\Files\BREAK100_train_<symbol>.csv
-  One row per episode AFTER the path is known (SL / TP3 / 12 M30 bars).
-  quality=0 rows are discarded by the trainer.
-  Drag that file onto BREAK100-Trainer.exe (preferred over learn.csv).
-
-Compile 1.83. Attach BREAK100 M30. InpTrainLog = true.
+Compile 1.84. Attach BREAK100 M30.

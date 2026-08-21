@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-21 | v1.84 Simple Telegram WATCH/ENTRY/SL HIT/TP HIT with emoji. Cross-chart dedup. SL/TP no longer 0.00. Live locked. | MQL5 Telegram | Owner request |
 | 2026-08-21 | v1.83 Quality-gated BREAK100_train_*.csv: post-fill MFE/MAE path, spread/box filters, trainer prefers train over learn. Warehouse unchanged. Live locked. | MQL5 Train.mqh + trainer | Owner request |
 | 2026-08-21 | v1.82 RL direction gate (SKIP/BUY-only/SELL-only/OCO) + SL/TP UCB/REINFORCE. Trains on closed labels. Live locked. DEMO_AUTO demo only. | MQL5 learner + trainer | Owner request |
 | 2026-08-21 | v1.81 Telegram ML/RL status every 6 hours (capture, learner, box counts). Dedup across charts. Live remains locked. | MQL5 EA Telegram digest | Owner request |

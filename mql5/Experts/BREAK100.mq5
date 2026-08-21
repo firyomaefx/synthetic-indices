@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.83"
-#property description "Train-quality episodes + RL dir/SL/TP. DEMO_AUTO demo only. Live locked."
+#property version   "1.84"
+#property description "Simple Telegram ENTRY/SL/TP alerts. DEMO_AUTO demo only. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -153,6 +153,9 @@ void B100ReplayJournalMarks();
 void B100RescaleJournalMarks();
 int  B100JournalWidth();
 int  B100Pts(const double a, const double b);
+string B100Px(const double x);
+void B100FillSlTpFallback(const int dir, const double px, double &sl, double &tp1, double &tp2, double &tp3);
+void B100FillBoxLevels(const int dir, const double entry, const double ask, const double bid);
 void B100Tg(const string text);
 void B100OcoClearTickets(void);
 void B100ArmBoxOco(const double bid, const double ask);
@@ -371,9 +374,15 @@ void OnTick()
          if(labeled == "CENSORED_OR_AMBIGUOUS")
             B100CancelBoxOco("timeout / both sides hit");
          else if(labeled == "BREAKOUT_UP")
+           {
+            B100FillBoxLevels(1, g_box.buy_stop, ask, bid);
             B100TelegramFill(1, g_box.buy_stop, true);
+           }
          else if(labeled == "BREAKOUT_DOWN")
+           {
+            B100FillBoxLevels(-1, g_box.sell_stop, ask, bid);
             B100TelegramFill(-1, g_box.sell_stop, true);
+           }
         }
       decide_up     = g_box.n_break_up;
       decide_dn     = g_box.n_break_dn;
@@ -519,6 +528,13 @@ void OnTick()
      }
    if(InpTrainLog && B100TrainStep(g_episode, bid, ask, InpTrainHorizon))
      {
+      const double exit_px = (g_episode.side > 0) ? bid : ask;
+      const double pt = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+      double pts = 0.0;
+      if(pt > 0.0 && g_episode.entry > 0.0)
+         pts = (exit_px - g_episode.entry) / pt * (double)g_episode.side;
+      B100TelegramClose(g_episode.exit_why, g_episode.side, g_episode.entry, exit_px,
+                        g_episode.sl, g_episode.tp1, pts);
       if(g_episode.quality == 1 && g_episode.hw > 0.0)
         {
          B100LearnerObserve(g_learner, g_episode.side, g_episode.label,
@@ -541,9 +557,56 @@ void OnTick()
 int B100Pts(const double a, const double b)
   {
    const double pt = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   if(pt <= 0.0)
+   if(pt <= 0.0 || a <= 0.0 || b <= 0.0)
       return 0;
    return (int)MathRound(MathAbs(a - b) / pt);
+  }
+
+string B100Px(const double x)
+  {
+   if(x <= 0.0)
+      return "-";
+   return DoubleToString(x, _Digits);
+  }
+
+void B100FillSlTpFallback(const int dir, const double px, double &sl, double &tp1, double &tp2, double &tp3)
+  {
+   sl  = (dir > 0) ? g_oco_sl_buy  : g_oco_sl_sell;
+   tp1 = (dir > 0) ? g_oco_tp_buy  : g_oco_tp_sell;
+   tp2 = 0.0;
+   tp3 = 0.0;
+   if(sl <= 0.0 && g_box.height > 0.0)
+      sl = (dir > 0) ? g_box.low : g_box.high;
+   if(g_levels.valid && g_levels.dir == dir)
+     {
+      if(sl <= 0.0)
+         sl = g_levels.sl;
+      if(tp1 <= 0.0)
+         tp1 = g_levels.tp1;
+      tp2 = g_levels.tp2;
+      tp3 = g_levels.tp3;
+     }
+   if(tp1 <= 0.0 && g_box.height > 0.0 && px > 0.0)
+     {
+      const double h = g_box.height;
+      tp1 = px + dir * h * MathMax(g_policy.tp1_r, InpTp1R);
+      tp2 = px + dir * h * MathMax(g_policy.tp2_r, InpTp2R);
+      tp3 = px + dir * h * MathMax(g_policy.tp3_r, InpTp3R);
+     }
+   if(dir > 0)
+     {
+      if(g_oco_sl_buy <= 0.0)
+         g_oco_sl_buy = sl;
+      if(g_oco_tp_buy <= 0.0)
+         g_oco_tp_buy = tp1;
+     }
+   else if(dir < 0)
+     {
+      if(g_oco_sl_sell <= 0.0)
+         g_oco_sl_sell = sl;
+      if(g_oco_tp_sell <= 0.0)
+         g_oco_tp_sell = tp1;
+     }
   }
 
 void B100Tg(const string text)
@@ -551,6 +614,11 @@ void B100Tg(const string text)
    if(!InpTelegram)
       return;
    B100TelegramSend(text);
+  }
+
+string B100TgKey(const string kind)
+  {
+   return _Symbol + "|" + kind + "|" + IntegerToString((int)g_box.armed_bar);
   }
 
 void B100OcoClearTickets(void)
@@ -562,44 +630,35 @@ void B100OcoClearTickets(void)
 
 void B100TelegramWatch(void)
   {
-   if(g_oco_watch_bar == g_box.armed_bar)
+   const string key = B100TgKey("WATCH");
+   if(B100TgSeen(key))
       return;
-   g_oco_watch_bar = g_box.armed_bar;
-   const int sl_b = B100Pts(g_oco_buy_px, g_oco_sl_buy);
-   const int tp_b = B100Pts(g_oco_buy_px, g_oco_tp_buy);
-   const int sl_s = B100Pts(g_oco_sell_px, g_oco_sl_sell);
-   const int tp_s = B100Pts(g_oco_sell_px, g_oco_tp_sell);
-   string msg = "BREAK100 WATCH " + _Symbol + " M30\n";
-   msg += "BUY STOP " + DoubleToString(g_oco_buy_px, _Digits) + "\n";
-   msg += "  SL " + DoubleToString(g_oco_sl_buy, _Digits) + " (" + IntegerToString(sl_b) + " pts)";
-   msg += "  TP " + DoubleToString(g_oco_tp_buy, _Digits) + " (" + IntegerToString(tp_b) + " pts)\n";
-   msg += "SELL STOP " + DoubleToString(g_oco_sell_px, _Digits) + "\n";
-   msg += "  SL " + DoubleToString(g_oco_sl_sell, _Digits) + " (" + IntegerToString(sl_s) + " pts)";
-   msg += "  TP " + DoubleToString(g_oco_tp_sell, _Digits) + " (" + IntegerToString(tp_s) + " pts)\n";
-   msg += "first fill deletes the other\n";
-   msg += "mode=" + B100ModeName(g_mode.mode);
-   if(g_oco_buy_tk != 0 || g_oco_sell_tk != 0)
-      msg += "\nbroker BUY #" + IntegerToString((int)g_oco_buy_tk) +
-             "  SELL #" + IntegerToString((int)g_oco_sell_tk);
-   B100Tg(msg);
-   const string sid = g_oco_sid;
-   const double eq = AccountInfoDouble(ACCOUNT_EQUITY);
-   const double risk_amt = eq * B100ClampRiskFraction(InpRiskFraction);
-   const double rr_b = (sl_b > 0) ? (double)tp_b / (double)sl_b : 0.0;
-   B100WriteSignalJson("WATCH_BUY", g_oco_buy_px, g_oco_sl_buy, g_oco_tp_buy, 0,
-                       g_oco_lots, risk_amt, rr_b, g_decision.safe_ev,
-                       "M30 box OCO buy stop", sid + "-B", "BOX_OCO_UCB_v1");
-   const double rr_s = (sl_s > 0) ? (double)tp_s / (double)sl_s : 0.0;
-   B100WriteSignalJson("WATCH_SELL", g_oco_sell_px, g_oco_sl_sell, g_oco_tp_sell, 0,
-                       g_oco_lots, risk_amt, rr_s, g_decision.safe_ev,
-                       "M30 box OCO sell stop", sid + "-S", "BOX_OCO_UCB_v1");
+   string msg = "👀 BREAK100  WATCH\n";
+   msg += _Symbol + "  M30\n";
+   if(g_oco_buy_px > 0.0)
+     {
+      msg += "🟢 BUY STOP  " + B100Px(g_oco_buy_px) + "\n";
+      msg += "   SL " + B100Px(g_oco_sl_buy);
+      msg += "   TP1 " + B100Px(g_oco_tp_buy) + "\n";
+     }
+   if(g_oco_sell_px > 0.0)
+     {
+      msg += "🔴 SELL STOP  " + B100Px(g_oco_sell_px) + "\n";
+      msg += "   SL " + B100Px(g_oco_sl_sell);
+      msg += "   TP1 " + B100Px(g_oco_tp_sell) + "\n";
+     }
+   if(g_oco_buy_px > 0.0 && g_oco_sell_px > 0.0)
+      msg += "First fill cancels the other.";
+   else
+      msg += "RL one-side stop.";
+   if(!InpTelegram)
+      return;
+   B100TelegramOnce(key, msg);
   }
 
 void B100TelegramFill(const int dir, const double px, const bool sibling_deleted)
   {
-   if(g_box.armed_bar != 0 && g_oco_fill_bar == g_box.armed_bar)
-      return;
-   g_oco_fill_bar = g_box.armed_bar;
+   const string key = B100TgKey(dir > 0 ? "ENTRY_BUY" : "ENTRY_SELL");
    g_oco_fill_dir = dir;
    g_oco_fill_px  = px;
    string err = "";
@@ -616,46 +675,87 @@ void B100TelegramFill(const int dir, const double px, const bool sibling_deleted
          g_oco_buy_tk = 0;
         }
      }
-   const double sl = (dir > 0) ? g_oco_sl_buy : g_oco_sl_sell;
-   const double tp = (dir > 0) ? g_oco_tp_buy : g_oco_tp_sell;
-   string msg = "BREAK100 FILL " + (dir > 0 ? "BUY" : "SELL") + " " + _Symbol +
-                " @ " + DoubleToString(px, _Digits) + "\n";
+   double sl = 0, tp1 = 0, tp2 = 0, tp3 = 0;
+   B100FillSlTpFallback(dir, px, sl, tp1, tp2, tp3);
+   const string side = (dir > 0) ? "BUY" : "SELL";
+   const string face = (dir > 0) ? "🟢" : "🔴";
+   string msg = face + " BREAK100  ENTRY " + side + "\n";
+   msg += _Symbol + "  @ " + B100Px(px) + "\n";
+   msg += "🛑 SL   " + B100Px(sl);
+   const int slp = B100Pts(px, sl);
+   if(slp > 0)
+      msg += "  (" + IntegerToString(slp) + " pts)";
+   msg += "\n🎯 TP1  " + B100Px(tp1);
+   if(tp2 > 0.0)
+      msg += "\n🎯 TP2  " + B100Px(tp2);
+   if(tp3 > 0.0)
+      msg += "\n🎯 TP3  " + B100Px(tp3);
    if(sibling_deleted)
-      msg += (dir > 0 ? "SELL STOP deleted\n" : "BUY STOP deleted\n");
-   msg += "SL " + DoubleToString(sl, _Digits) + " (" + IntegerToString(B100Pts(px, sl)) + " pts)  ";
-   msg += "TP " + DoubleToString(tp, _Digits) + " (" + IntegerToString(B100Pts(px, tp)) + " pts)";
-   B100Tg(msg);
+      msg += (dir > 0 ? "\nSELL STOP cancelled" : "\nBUY STOP cancelled");
+   if(!InpTelegram)
+      return;
+   B100TelegramOnce(key, msg);
   }
 
 void B100TelegramCancel(const string reason)
   {
-   if(g_box.armed_bar != 0 && g_oco_cancel_bar == g_box.armed_bar)
+   const string key = B100TgKey("CANCEL");
+   string msg = "⚪ BREAK100  CANCEL\n";
+   msg += _Symbol + "  M30\n";
+   msg += reason;
+   if(!InpTelegram)
       return;
-   g_oco_cancel_bar = g_box.armed_bar;
-   string msg = "BREAK100 CANCEL " + _Symbol + " M30\n";
-   msg += "both stops deleted\n";
-   msg += "reason: " + reason;
-   B100Tg(msg);
+   B100TelegramOnce(key, msg);
   }
 
 void B100TelegramClose(const string why, const int dir, const double entry, const double exit_px, const double sl, const double tp, const double pts)
   {
-   const string side = (dir > 0) ? "BUY" : ((dir < 0) ? "SELL" : "?");
    string tag = why;
-   if(why == "CLOSE_SL")
-      tag = "SL";
-   else if(why == "CLOSE_TP")
-      tag = "TP";
-   else if(why == "CLOSE_INVALIDATE")
-      tag = "INVALIDATE";
-   string msg = "BREAK100 CLOSE " + side + " " + tag + " " + _Symbol + "\n";
-   msg += "entry " + DoubleToString(entry, _Digits);
-   msg += "  exit " + DoubleToString(exit_px, _Digits) + "\n";
-   msg += "SL " + DoubleToString(sl, _Digits) + " (" + IntegerToString(B100Pts(entry, sl)) + " pts)  ";
-   msg += "TP " + DoubleToString(tp, _Digits) + " (" + IntegerToString(B100Pts(entry, tp)) + " pts)\n";
+   string face = "⚪";
+   if(why == "CLOSE_SL" || why == "SL")
+     {
+      tag = "SL HIT";
+      face = "❌";
+     }
+   else if(why == "CLOSE_TP" || why == "TP" || why == "TP1" || why == "TP2" || why == "TP3" ||
+           why == "TP3" || why == "TP2_H" || why == "TP1_H")
+     {
+      tag = "TP HIT";
+      face = "✅";
+      if(why == "TP2_H")
+         tag = "TP2 HIT";
+      if(why == "TP1_H")
+         tag = "TP1 HIT";
+      if(why == "TP3")
+         tag = "TP3 HIT";
+     }
+   else if(why == "HORIZON")
+     {
+      tag = "TIME EXIT";
+      face = "⏰";
+     }
+   else if(StringFind(why, "CLOSE_") == 0)
+      tag = StringSubstr(why, 6);
+   const string side = (dir > 0) ? "BUY" : ((dir < 0) ? "SELL" : "?");
+   const string key = B100TgKey("CLOSE_" + tag);
+   string msg = face + " BREAK100  " + tag + "  " + side + "\n";
+   msg += _Symbol + "\n";
+   msg += "Entry " + B100Px(entry) + "  →  Exit " + B100Px(exit_px) + "\n";
+   if(sl > 0.0)
+      msg += "SL " + B100Px(sl) + "   ";
+   if(tp > 0.0)
+      msg += "TP " + B100Px(tp);
+   msg += "\n";
    const int ip = (int)MathRound(pts);
-   msg += (ip >= 0 ? "+" : "") + IntegerToString(ip) + " pts";
-   B100Tg(msg);
+   if(ip > 0)
+      msg += "Result  +" + IntegerToString(ip) + " pts";
+   else if(ip < 0)
+      msg += "Result  " + IntegerToString(ip) + " pts";
+   else
+      msg += "Result  flat";
+   if(!InpTelegram)
+      return;
+   B100TelegramOnce(key, msg);
   }
 
 datetime B100StatusReadGmt(void)
@@ -694,7 +794,7 @@ void B100TelegramStatus(void)
    else if(g_signal != "")
       box_line = g_signal;
 
-   string msg = "BREAK100 ML/RL STATUS  " + _Symbol + "\n";
+   string msg = "📊 BREAK100  status  " + _Symbol + "\n";
    msg += "gmt " + TimeToString(TimeGMT(), TIME_DATE | TIME_MINUTES) + "\n";
    msg += "mode " + B100ModeName(g_mode.mode);
    msg += "  health " + (g_mode.health == B100_HEALTHY ? "HEALTHY" : "FAULT");
