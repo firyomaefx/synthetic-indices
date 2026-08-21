@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.81"
-#property description "M30 box OCO. 6h ML/RL Telegram status. DEMO_AUTO demo only. Live locked."
+#property version   "1.82"
+#property description "M30 box OCO + RL direction/skip + SL/TP. DEMO_AUTO demo only. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -44,7 +44,8 @@ input double         InpTp1R           = 1.0;          // TP1 in R (1R = SL dist
 input double         InpTp2R           = 2.0;          // TP2 in R
 input double         InpTp3R           = 3.0;          // TP3 in R
 
-input bool           InpUseLearner     = true;         // Dynamic SL/TP from closed labels
+input bool           InpUseLearner     = true;         // Dynamic SL/TP + direction from closed labels
+input bool           InpDirLearner     = true;         // RL may SKIP / BUY-only / SELL-only / OCO
 input bool           InpShadowLedger   = true;         // Virtual fills in SHADOW
 input bool           InpDrawChannel    = true;         // Draw channel lines
 input bool           InpAttachIndicator= true;         // Attach visual indicator
@@ -191,6 +192,7 @@ int OnInit()
       g_learner.last_arm = g_policy.arm;
       Print("BREAK100 loaded offline policy  source=", g_policy.source,
             " n=", g_policy.n, " arm=", g_policy.arm_id,
+            " gate=", g_policy.dir_gate,
             " SL=", DoubleToString(g_policy.sl_r, 3),
             " TP=", DoubleToString(g_policy.tp1_r, 2), "/",
             DoubleToString(g_policy.tp2_r, 2), "/", DoubleToString(g_policy.tp3_r, 2));
@@ -324,8 +326,31 @@ void OnTick()
                               InpBoxAtrPeriod, InpBoxAtrMax, InpBoxTimeout, bid, ask);
       if(g_box.just_armed)
         {
-         B100CaptureSetup(g_capture, g_box, bid, ask);
-         arm_now = true;
+         string gate = "BOTH";
+         if(InpUseLearner && InpDirLearner)
+           {
+            B100LearnerPolicy(g_learner, 0, g_policy);
+            gate = g_policy.dir_gate;
+           }
+         B100BoxApplyDirGate(g_box, gate);
+         if(gate == "SKIP")
+           {
+            Print("BREAK100 RL SKIP pause  p_up=", DoubleToString(g_policy.p_up, 2),
+                  " p_dn=", DoubleToString(g_policy.p_dn, 2),
+                  " p_fail=", DoubleToString(g_policy.p_fail, 2),
+                  " n=", g_policy.n);
+            g_signal = "WAIT";
+            g_signal_note = "RL SKIP — trap rate high, no OCO this pause";
+           }
+         else
+           {
+            B100CaptureSetup(g_capture, g_box, bid, ask);
+            arm_now = true;
+            if(gate != "BOTH")
+               Print("BREAK100 RL gate=", gate,
+                     " p_up=", DoubleToString(g_policy.p_up, 2),
+                     " p_dn=", DoubleToString(g_policy.p_dn, 2));
+           }
          g_box.just_armed = false;
         }
       if(labeled != "")
@@ -643,6 +668,9 @@ void B100TelegramStatus(void)
    msg += "learner n=" + IntegerToString(g_learner.n) + "/" + IntegerToString(B100_LEARN_MAX);
    msg += "  policy=" + (g_policy.source == "" ? "none" : g_policy.source) + "\n";
    msg += "  arm=" + (g_policy.arm_id == "" ? "-" : g_policy.arm_id);
+   msg += "  gate=" + (g_policy.dir_gate == "" ? "BOTH" : g_policy.dir_gate);
+   msg += "  p=" + DoubleToString(g_policy.p_up, 2) + "/" +
+          DoubleToString(g_policy.p_dn, 2) + "/" + DoubleToString(g_policy.p_fail, 2);
    msg += "  SL=" + DoubleToString(g_policy.sl_r, 2) + "R";
    msg += "  TP=" + DoubleToString(g_policy.tp1_r, 2) + "/" +
           DoubleToString(g_policy.tp2_r, 2) + "/" + DoubleToString(g_policy.tp3_r, 2) + "R\n";
@@ -703,28 +731,54 @@ void B100ArmBoxOco(const double bid, const double ask)
    if(B100CountMagicPositions() > 0)
       return;
 
-   B100FillBoxLevels(1, g_box.buy_stop, ask, bid);
-   const double buy_px = g_box.buy_stop;
-   const double sl_buy = g_levels.sl;
-   const double tp_buy = g_levels.tp1;
-   B100FillBoxLevels(-1, g_box.sell_stop, ask, bid);
-   const double sell_px = g_box.sell_stop;
-   const double sl_sell = g_levels.sl;
-   const double tp_sell = g_levels.tp1;
+   const bool want_buy  = g_box.allow_buy && g_box.buy_stop > 0.0;
+   const bool want_sell = g_box.allow_sell && g_box.sell_stop > 0.0;
+   if(!want_buy && !want_sell)
+      return;
+
+   double buy_px = 0, sl_buy = 0, tp_buy = 0, sell_px = 0, sl_sell = 0, tp_sell = 0;
+   if(want_buy)
+     {
+      B100FillBoxLevels(1, g_box.buy_stop, ask, bid);
+      buy_px = g_box.buy_stop;
+      sl_buy = g_levels.sl;
+      tp_buy = g_levels.tp1;
+     }
+   if(want_sell)
+     {
+      B100FillBoxLevels(-1, g_box.sell_stop, ask, bid);
+      sell_px = g_box.sell_stop;
+      sl_sell = g_levels.sl;
+      tp_sell = g_levels.tp1;
+     }
    g_levels.valid = false;
 
-   if(buy_px <= sell_px || sl_buy <= 0.0 || sl_sell <= 0.0)
+   if(want_buy && sl_buy <= 0.0)
       return;
-   if(!(ask < buy_px && bid > sell_px))
+   if(want_sell && sl_sell <= 0.0)
+      return;
+   if(want_buy && want_sell && buy_px <= sell_px)
+      return;
+   if(want_buy && !(ask < buy_px))
      {
-      Print("B100 OCO skip — price already through the box stops");
+      Print("B100 skip — ask already through BUY STOP");
+      return;
+     }
+   if(want_sell && !(bid > sell_px))
+     {
+      Print("B100 skip — bid already through SELL STOP");
       return;
      }
 
    const double eq = AccountInfoDouble(ACCOUNT_EQUITY);
-   const double lots_b = B100StopRiskLots(eq, InpRiskFraction, buy_px, sl_buy);
-   const double lots_s = B100StopRiskLots(eq, InpRiskFraction, sell_px, sl_sell);
-   const double lots = MathMin(lots_b, lots_s);
+   double lots = 0.0;
+   if(want_buy)
+      lots = B100StopRiskLots(eq, InpRiskFraction, buy_px, sl_buy);
+   if(want_sell)
+     {
+      const double ls = B100StopRiskLots(eq, InpRiskFraction, sell_px, sl_sell);
+      lots = (lots > 0.0) ? MathMin(lots, ls) : ls;
+     }
    if(lots <= 0.0)
      {
       Print("B100 OCO skip — lots=0");
@@ -751,24 +805,29 @@ void B100ArmBoxOco(const double bid, const double ask)
       B100DemoCancelAllPendings();
       string err = "";
       ulong tb = 0, ts = 0;
-      const bool ok_b = B100DemoPlacePending(ORDER_TYPE_BUY_STOP, buy_px, sl_buy, tp_buy, lots, g_oco_sid + "B", tb, err);
-      if(!ok_b)
+      if(want_buy)
         {
-         Print("B100 OCO BUY_STOP failed ", err);
-         B100OcoClearTickets();
-         B100TelegramWatch();
-         return;
+         if(!B100DemoPlacePending(ORDER_TYPE_BUY_STOP, buy_px, sl_buy, tp_buy, lots, g_oco_sid + "B", tb, err))
+           {
+            Print("B100 OCO BUY_STOP failed ", err);
+            B100OcoClearTickets();
+            B100TelegramWatch();
+            return;
+           }
         }
-      string err_s = "";
-      const bool ok_s = B100DemoPlacePending(ORDER_TYPE_SELL_STOP, sell_px, sl_sell, tp_sell, lots, g_oco_sid + "S", ts, err_s);
-      if(!ok_s)
+      if(want_sell)
         {
-         Print("B100 OCO SELL_STOP failed ", err_s, " — deleting BUY_STOP");
-         string cerr = "";
-         B100DemoCancelTicket(tb, cerr);
-         B100OcoClearTickets();
-         B100TelegramWatch();
-         return;
+         string err_s = "";
+         if(!B100DemoPlacePending(ORDER_TYPE_SELL_STOP, sell_px, sl_sell, tp_sell, lots, g_oco_sid + "S", ts, err_s))
+           {
+            Print("B100 OCO SELL_STOP failed ", err_s);
+            string cerr = "";
+            if(tb != 0)
+               B100DemoCancelTicket(tb, cerr);
+            B100OcoClearTickets();
+            B100TelegramWatch();
+            return;
+           }
         }
       g_oco_buy_tk  = tb;
       g_oco_sell_tk = ts;
@@ -776,8 +835,9 @@ void B100ArmBoxOco(const double bid, const double ask)
      }
 
    B100TelegramWatch();
-   Print("B100 OCO armed BUY STOP ", DoubleToString(buy_px, _Digits),
-         "  SELL STOP ", DoubleToString(sell_px, _Digits),
+   Print("B100 OCO armed gate=", g_box.dir_gate,
+         " BUY ", DoubleToString(buy_px, _Digits),
+         "  SELL ", DoubleToString(sell_px, _Digits),
          "  lots=", DoubleToString(lots, 2),
          "  mode=", B100ModeName(g_mode.mode));
   }

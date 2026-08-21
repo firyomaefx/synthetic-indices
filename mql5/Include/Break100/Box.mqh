@@ -53,8 +53,11 @@ struct B100Box
    double               atr;
    B100BoxHist          hist[B100_BOX_HIST];
    int                  hist_n;
-   bool                 just_armed;   // true for one tick after SCAN→ARMED (pre-break snapshot)
-   datetime             lock_bar;     // do not re-arm until a newer M30 has closed
+   bool                 just_armed;
+   datetime             lock_bar;
+   bool                 allow_buy;
+   bool                 allow_sell;
+   string               dir_gate;
   };
 
 void B100BoxInit(B100Box &b)
@@ -224,8 +227,8 @@ string B100BoxOnTick(B100Box &b,
 
    if(b.state == B100_BOX_ARMED)
      {
-      const bool hit_buy  = (ask >= b.buy_stop);
-      const bool hit_sell = (bid <= b.sell_stop);
+      const bool hit_buy  = (b.allow_buy && b.buy_stop > 0.0 && ask >= b.buy_stop);
+      const bool hit_sell = (b.allow_sell && b.sell_stop > 0.0 && bid <= b.sell_stop);
       if(hit_buy && hit_sell)
         {
          b.last_label = "CENSORED_OR_AMBIGUOUS";
@@ -313,14 +316,47 @@ string B100BoxOnTick(B100Box &b,
    b.wait_bars = 0;
    b.n_boxes++;
    b.just_armed = true;
+   b.allow_buy  = true;
+   b.allow_sell = true;
+   b.dir_gate   = "BOTH";
    B100BoxPushHist(b, t0, t1, hi, lo);
    return "";
+  }
+
+void B100BoxApplyDirGate(B100Box &b, const string gate)
+  {
+   b.dir_gate = gate;
+   if(gate == "SKIP")
+     {
+      b.state = B100_BOX_SCAN;
+      b.ready = false;
+      b.just_armed = false;
+      b.allow_buy = false;
+      b.allow_sell = false;
+      return;
+     }
+   if(gate == "BUY")
+     {
+      b.allow_buy  = true;
+      b.allow_sell = false;
+      b.sell_stop  = 0.0;
+     }
+   else if(gate == "SELL")
+     {
+      b.allow_buy  = false;
+      b.allow_sell = true;
+      b.buy_stop   = 0.0;
+     }
   }
 
 string B100BoxWatchNote(const B100Box &b, const double mid)
   {
    if(b.state != B100_BOX_ARMED || !b.ready)
       return "scanning for a tight M30 pause (3–8 overlapping bars)";
+   if(b.dir_gate == "BUY")
+      return "RL BUY-only  BUY STOP " + DoubleToString(b.buy_stop, _Digits);
+   if(b.dir_gate == "SELL")
+      return "RL SELL-only  SELL STOP " + DoubleToString(b.sell_stop, _Digits);
    return "OCO  BUY STOP " + DoubleToString(b.buy_stop, _Digits) +
           "  SELL STOP " + DoubleToString(b.sell_stop, _Digits) +
           "  first fill deletes the other";

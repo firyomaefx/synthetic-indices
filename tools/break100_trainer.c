@@ -152,8 +152,30 @@ static int reinforce(const Sample *s, int n) {
 typedef struct {
     int ready, n, arm;
     char source[24];
-    double sl, t1, t2, t3, mean_r, oos_r;
+    char gate[12];
+    double sl, t1, t2, t3, mean_r, oos_r, p_up, p_dn, p_fail;
 } Policy;
+
+static void fill_dir(const Sample *s, int n, Policy *p) {
+    int up = 0, dn = 0, fail = 0;
+    for (int i = 0; i < n; i++) {
+        if (strstr(s[i].label, "BREAKOUT_UP")) up++;
+        else if (strstr(s[i].label, "BREAKOUT_DOWN")) dn++;
+        else fail++;
+    }
+    double tot = (double)(up + dn + fail + 3);
+    p->p_up = (up + 1.0) / tot;
+    p->p_dn = (dn + 1.0) / tot;
+    p->p_fail = (fail + 1.0) / tot;
+    strcpy(p->gate, "BOTH");
+    if (n < MIN_N) return;
+    if (p->p_fail > p->p_up && p->p_fail > p->p_dn && p->p_fail >= 0.42) {
+        strcpy(p->gate, "SKIP");
+        return;
+    }
+    if (p->p_up >= p->p_dn + 0.12 && p->p_up >= 0.38) strcpy(p->gate, "BUY");
+    else if (p->p_dn >= p->p_up + 0.12 && p->p_dn >= 0.38) strcpy(p->gate, "SELL");
+}
 
 static void blend(const Sample *s, int n, int arm, Policy *p) {
     double mae[MAX_N], mfe[MAX_N];
@@ -195,6 +217,7 @@ static void train(const Sample *s, int n, Policy *p) {
         p->t1 = ARM_T1[0];
         p->t2 = ARM_T2[0];
         p->t3 = ARM_T3[0];
+        fill_dir(s, n, p);
         return;
     }
     int split = (int)(n * 0.7);
@@ -215,14 +238,16 @@ static void train(const Sample *s, int n, Policy *p) {
         p->oos_r = p->mean_r;
     }
     (void)ucb;
+    fill_dir(s, n, p);
 }
 
 static int write_policy(const char *path, const Policy *p) {
     FILE *f = fopen(path, "w");
     if (!f) return 0;
-    fprintf(f, "ready,source,n,arm,sl_r,tp1_r,tp2_r,tp3_r,mean_r\n");
-    fprintf(f, "%d,%s,%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f\n", p->ready, p->source, p->n, p->arm, p->sl,
-            p->t1, p->t2, p->t3, p->mean_r);
+    fprintf(f, "ready,source,n,arm,sl_r,tp1_r,tp2_r,tp3_r,mean_r,p_up,p_dn,p_fail,gate\n");
+    fprintf(f, "%d,%s,%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%s\n",
+            p->ready, p->source, p->n, p->arm, p->sl, p->t1, p->t2, p->t3, p->mean_r,
+            p->p_up, p->p_dn, p->p_fail, p->gate);
     fclose(f);
     return 1;
 }
@@ -278,8 +303,8 @@ static void pause_out(void) {
 
 int main(int argc, char **argv) {
     printf("============================================\n");
-    printf(" BREAK100 Policy Trainer  v1.41\n");
-    printf(" Offline UCB + REINFORCE for SL/TP\n");
+    printf(" BREAK100 Policy Trainer  v1.82\n");
+    printf(" Offline UCB + REINFORCE for SL/TP + direction gate\n");
     printf(" Does NOT send broker orders. Not a profit claim.\n");
     printf("============================================\n\n");
 
@@ -330,6 +355,8 @@ int main(int argc, char **argv) {
     Policy p;
     train(s, n, &p);
     printf("Train  n=%d  source=%s  arm=%s (%d)\n", p.n, p.source, ARM_ID[p.arm], p.arm);
+    printf("Direction  p_up=%.3f  p_dn=%.3f  p_fail=%.3f  gate=%s\n",
+           p.p_up, p.p_dn, p.p_fail, p.gate);
     printf("SL/hw  %.3f\n", p.sl);
     printf("TP/hw  %.3f / %.3f / %.3f\n", p.t1, p.t2, p.t3);
     printf("In-sample mean R   %.4f\n", p.mean_r);

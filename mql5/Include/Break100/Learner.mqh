@@ -38,6 +38,10 @@ struct B100LearnPolicy
    double            tp2_r;
    double            tp3_r;
    double            mean_r;
+   double            p_up;
+   double            p_dn;
+   double            p_fail;
+   string            dir_gate;
   };
 
 struct B100Learner
@@ -63,6 +67,8 @@ double B100Clamp(const double x, const double lo, const double hi)
   {
    return MathMin(hi, MathMax(lo, x));
   }
+
+void B100FillDirGate(const B100Learner &L, B100LearnPolicy &p);
 
 double B100RealizedR(const B100LearnSample &s, const double sl_r, const double tp3_r)
   {
@@ -166,6 +172,8 @@ void B100LearnerPolicy(B100Learner &L, const int side, B100LearnPolicy &p)
       p.tp2_r   = L.arms[0].tp2_r;
       p.tp3_r   = L.arms[0].tp3_r;
       p.mean_r  = 0.0;
+      p.p_up = p.p_dn = p.p_fail = 0.0;
+      p.dir_gate = "BOTH";
       L.last_arm = 0;
       return;
      }
@@ -200,6 +208,46 @@ void B100LearnerPolicy(B100Learner &L, const int side, B100LearnPolicy &p)
       k++;
      }
    p.mean_r = (k > 0) ? sum / k : 0.0;
+   B100FillDirGate(L, p);
+  }
+
+void B100FillDirGate(const B100Learner &L, B100LearnPolicy &p)
+  {
+   int n_up = 0, n_dn = 0, n_fail = 0;
+   for(int i = 0; i < L.n; i++)
+     {
+      if(L.samples[i].label == "BREAKOUT_UP")
+         n_up++;
+      else if(L.samples[i].label == "BREAKOUT_DOWN")
+         n_dn++;
+      else
+         n_fail++;
+     }
+   const double tot = (double)(n_up + n_dn + n_fail + 3);
+   double pu = (n_up + 1.0) / tot;
+   double pd = (n_dn + 1.0) / tot;
+   double pf = (n_fail + 1.0) / tot;
+   if(p.p_up + p.p_dn + p.p_fail > 0.5)
+     {
+      pu = 0.5 * pu + 0.5 * p.p_up;
+      pd = 0.5 * pd + 0.5 * p.p_dn;
+      pf = 0.5 * pf + 0.5 * p.p_fail;
+     }
+   p.p_up = pu;
+   p.p_dn = pd;
+   p.p_fail = pf;
+   p.dir_gate = "BOTH";
+   if(p.n < B100_LEARN_MIN)
+      return;
+   if(pf > pu && pf > pd && pf >= 0.42)
+     {
+      p.dir_gate = "SKIP";
+      return;
+     }
+   if(pu >= pd + 0.12 && pu >= 0.38)
+      p.dir_gate = "BUY";
+   else if(pd >= pu + 0.12 && pd >= 0.38)
+      p.dir_gate = "SELL";
   }
 
 void B100LearnerObserve(B100Learner &L, const int side, const string label, const double mfe, const double mae, const double hw)
@@ -272,9 +320,12 @@ bool B100PolicyLoad(B100LearnPolicy &p)
    const int fh = FileOpen(B100PolicyFileName(), FILE_READ | FILE_CSV | FILE_ANSI | FILE_COMMON, ',');
    if(fh == INVALID_HANDLE)
       return false;
-   FileReadString(fh); FileReadString(fh); FileReadString(fh);
-   FileReadString(fh); FileReadString(fh); FileReadString(fh);
-   FileReadString(fh); FileReadString(fh); FileReadString(fh);
+   int ncols = 0;
+   while(!FileIsEnding(fh) && !FileIsLineEnding(fh) && ncols < 20)
+     {
+      FileReadString(fh);
+      ncols++;
+     }
    p.ready  = (FileReadNumber(fh) != 0.0);
    p.source = FileReadString(fh);
    p.n      = (int)FileReadNumber(fh);
@@ -284,11 +335,22 @@ bool B100PolicyLoad(B100LearnPolicy &p)
    p.tp2_r  = FileReadNumber(fh);
    p.tp3_r  = FileReadNumber(fh);
    p.mean_r = FileReadNumber(fh);
+   p.p_up = p.p_dn = p.p_fail = 0.0;
+   p.dir_gate = "BOTH";
+   if(ncols >= 13 && !FileIsEnding(fh))
+     {
+      p.p_up     = FileReadNumber(fh);
+      p.p_dn     = FileReadNumber(fh);
+      p.p_fail   = FileReadNumber(fh);
+      p.dir_gate = FileReadString(fh);
+     }
    FileClose(fh);
    if(p.arm < 0) p.arm = 0;
    if(p.arm > 3) p.arm = 3;
    if(p.source == "")
       p.source = "RL_UCB";
+   if(p.dir_gate == "")
+      p.dir_gate = "BOTH";
    p.arm_id = (p.arm == 1 ? "tight" : p.arm == 2 ? "wide" : p.arm == 3 ? "runner" : "balanced");
    return (p.sl_r > 0.0 && p.tp3_r > 0.0);
   }

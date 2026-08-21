@@ -51,8 +51,8 @@ void B100ShadowArmOco(B100ShadowBook &b,
   {
    if(b.open || lots <= 0.0)
       return;
-   b.pend_buy   = true;
-   b.pend_sell  = true;
+   b.pend_buy   = (buy_px > 0.0);
+   b.pend_sell  = (sell_px > 0.0);
    b.buy_px     = buy_px;
    b.sell_px    = sell_px;
    b.sl_buy     = sl_buy;
