@@ -44,6 +44,11 @@ struct B100Episode
    double   h4_dist;
    int      arm;
    ulong    id;
+   int      touches_hi;
+   int      touches_lo;
+   double   close_loc;
+   double   compress;
+   double   h_vs_h4;
   };
 
 void B100TrainInit(B100Episode &e)
@@ -69,7 +74,8 @@ void B100TrainEnsureHeader(const int fh)
                 "mfe_r", "mae_r", "height", "atr", "spread", "bars_box",
                 "hour", "dow", "hit_tp1", "hit_tp2", "hit_tp3", "hit_sl",
                 "bars_held", "weight", "episode_id", "q_reason",
-                "buy_stop", "sell_stop", "entry", "sl", "tp1", "tp2", "tp3");
+                "buy_stop", "sell_stop", "entry", "sl", "tp1", "tp2", "tp3",
+                "touches_hi", "touches_lo", "close_loc", "compress", "h_vs_h4");
    else
       FileSeek(fh, 0, SEEK_END);
   }
@@ -147,6 +153,11 @@ void B100TrainArm(B100Episode &e, const B100Box &b, const double bid, const doub
    const double h4c = B100TfClose(PERIOD_H4);
    const double mid = 0.5 * (b.high + b.low);
    e.h4_dist  = (h4c > 0.0 && b.height > 0.0) ? (mid - h4c) / b.height : 0.0;
+   e.touches_hi = b.touches_hi;
+   e.touches_lo = b.touches_lo;
+   e.close_loc  = b.close_loc;
+   e.compress   = b.compress;
+   e.h_vs_h4    = b.h_vs_h4;
   }
 
 void B100TrainWrite(const B100Episode &e)
@@ -164,7 +175,8 @@ void B100TrainWrite(const B100Episode &e)
              mfe_r, mae_r, e.height, e.atr, e.spread_arm, e.bars_box,
              e.hour_gmt, e.dow, e.hit_tp1, e.hit_tp2, e.hit_tp3, e.hit_sl,
              e.bars_held, w, (long)e.id, e.q_reason,
-             e.buy_stop, e.sell_stop, e.entry, e.sl, e.tp1, e.tp2, e.tp3);
+             e.buy_stop, e.sell_stop, e.entry, e.sl, e.tp1, e.tp2, e.tp3,
+             e.touches_hi, e.touches_lo, e.close_loc, e.compress, e.h_vs_h4);
    FileClose(fh);
    const int kick = FileOpen("BREAK100_sync_needed.txt", FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
    if(kick != INVALID_HANDLE)

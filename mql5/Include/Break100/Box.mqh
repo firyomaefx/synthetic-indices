@@ -1,8 +1,8 @@
 #ifndef BREAK100_BOX_MQH
 #define BREAK100_BOX_MQH
 
-// Tight pause: 3–8 overlapping M30 bars that fit inside the last 3 H4 boxes.
-// Break = M30 close outside the box. SL/TP in box heights. No ATR decisions.
+// Adaptive M30 range: grow while bars belong to the same high/low, nested in H4.
+// Break = M30 close outside. SL/TP in box heights. No fade. No ATR decisions.
 
 enum ENUM_B100_STRAT
   {
@@ -58,6 +58,11 @@ struct B100Box
    bool                 allow_buy;
    bool                 allow_sell;
    string               dir_gate;
+   int                  touches_hi;
+   int                  touches_lo;
+   double               close_loc;
+   double               compress;
+   double               h_vs_h4;
   };
 
 void B100BoxInit(B100Box &b)
@@ -80,39 +85,44 @@ double B100H4Span(void)
    return hi - lo;
   }
 
-bool B100WindowIsCluster(const ENUM_TIMEFRAMES tf,
-                         const int start,
-                         const int end,
-                         const double h4_span,
-                         const double h4_frac,
-                         double &hi,
-                         double &lo)
+void B100RangePattern(const ENUM_TIMEFRAMES tf,
+                      const int end_shift,
+                      const int n_bars,
+                      const double hi,
+                      const double lo,
+                      const double h4_span,
+                      int &touches_hi,
+                      int &touches_lo,
+                      double &close_loc,
+                      double &compress,
+                      double &h_vs_h4)
   {
-   if(end < 1 || start < end)
-      return false;
-   hi = iHigh(_Symbol, tf, end);
-   lo = iLow(_Symbol, tf, end);
-   for(int i = end; i <= start; i++)
+   touches_hi = 0;
+   touches_lo = 0;
+   close_loc = 0.5;
+   compress = 1.0;
+   h_vs_h4 = 0.0;
+   const double H = hi - lo;
+   if(H <= 0.0)
+      return;
+   h_vs_h4 = (h4_span > 0.0) ? (H / h4_span) : 0.0;
+   const double band = 0.10 * H;
+   const int last = end_shift + n_bars - 1;
+   for(int i = end_shift; i <= last; i++)
      {
-      const double h = iHigh(_Symbol, tf, i);
-      const double l = iLow(_Symbol, tf, i);
-      if(h > hi) hi = h;
-      if(l < lo) lo = l;
+      if(iHigh(_Symbol, tf, i) >= hi - band)
+         touches_hi++;
+      if(iLow(_Symbol, tf, i) <= lo + band)
+         touches_lo++;
      }
-   const double rng = hi - lo;
-   if(rng <= 0.0 || h4_span <= 0.0)
-      return false;
-   if(rng > h4_frac * h4_span)
-      return false;
-   const double overlap_need = 0.10 * rng;
-   for(int i = end; i <= start; i++)
+   const double c = iClose(_Symbol, tf, end_shift);
+   close_loc = (c - lo) / H;
+   if(n_bars >= 2)
      {
-      const double h = iHigh(_Symbol, tf, i);
-      const double l = iLow(_Symbol, tf, i);
-      if(MathMin(h, hi) - MathMax(l, lo) < overlap_need)
-         return false;
+      const double h2 = MathMax(iHigh(_Symbol, tf, end_shift), iHigh(_Symbol, tf, end_shift + 1));
+      const double l2 = MathMin(iLow(_Symbol, tf, end_shift), iLow(_Symbol, tf, end_shift + 1));
+      compress = (h2 - l2) / H;
      }
-   return true;
   }
 
 bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
@@ -121,6 +131,7 @@ bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
                        const int max_bars,
                        const int atr_period,
                        const double h4_frac,
+                       const double widen_frac,
                        double &hi,
                        double &lo,
                        datetime &t_left,
@@ -134,32 +145,42 @@ bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
    if(atr_period < 0)
       return false;
    const double h4_span = B100H4Span();
-   const int minb = MathMax(3, min_bars);
+   if(h4_span <= 0.0)
+      return false;
+   const int minb = MathMax(4, min_bars);
    const int maxb = MathMax(minb, max_bars);
-   if(iBars(_Symbol, tf) < end_shift + maxb + 4)
+   if(iBars(_Symbol, tf) < end_shift + maxb + 2)
       return false;
 
-   bool found = false;
-   double best_rng = 1.0e100;
-   for(int len = minb; len <= maxb; len++)
+   hi = iHigh(_Symbol, tf, end_shift);
+   lo = iLow(_Symbol, tf, end_shift);
+   n_bars = 1;
+   const double widen = MathMax(0.0, widen_frac);
+   const double frac = MathMax(0.10, h4_frac);
+   for(int sh = end_shift + 1; sh <= end_shift + maxb - 1; sh++)
      {
-      double h, l;
-      const int start = end_shift + len - 1;
-      if(!B100WindowIsCluster(tf, start, end_shift, h4_span, h4_frac, h, l))
-         continue;
-      const double rng = h - l;
-      if(rng < best_rng)
-        {
-         best_rng = rng;
-         hi = h;
-         lo = l;
-         n_bars = len;
-         t_left = iTime(_Symbol, tf, start);
-         t_right = iTime(_Symbol, tf, end_shift);
-         found = true;
-        }
+      const double h = iHigh(_Symbol, tf, sh);
+      const double l = iLow(_Symbol, tf, sh);
+      const double nhi = MathMax(hi, h);
+      const double nlo = MathMin(lo, l);
+      const double nr = nhi - nlo;
+      if(nr > frac * h4_span)
+         break;
+      const double cur = hi - lo;
+      const double overlap = MathMin(h, hi) - MathMax(l, lo);
+      const double expand = nr - cur;
+      const bool belongs = (overlap > 0.0) || (cur > 0.0 && expand <= widen * cur);
+      if(!belongs)
+         break;
+      hi = nhi;
+      lo = nlo;
+      n_bars++;
      }
-   return found;
+   if(n_bars < minb)
+      return false;
+   t_left = iTime(_Symbol, tf, end_shift + n_bars - 1);
+   t_right = iTime(_Symbol, tf, end_shift);
+   return true;
   }
 
 void B100BoxPushHist(B100Box &b, const datetime t0, const datetime t1, const double hi, const double lo)
@@ -186,17 +207,18 @@ void B100BoxScanHistory(B100Box &b,
                         const int min_bars,
                         const int max_bars,
                         const int atr_period,
-                        const double atr_max)
+                        const double h4_frac,
+                        const double widen_frac)
   {
    b.hist_n = 0;
    int shift = 2;
-   const int last = MathMin(180, iBars(_Symbol, tf) - max_bars - 6);
+   const int last = MathMin(240, iBars(_Symbol, tf) - max_bars - 6);
    while(shift <= last && b.hist_n < B100_BOX_HIST)
      {
       double hi, lo, atr;
       datetime t0, t1;
       int n = 0;
-      if(B100FindClusterAt(tf, shift, min_bars, max_bars, atr_period, atr_max, hi, lo, t0, t1, n, atr))
+      if(B100FindClusterAt(tf, shift, min_bars, max_bars, atr_period, h4_frac, widen_frac, hi, lo, t0, t1, n, atr))
         {
          B100BoxPushHist(b, t0, t1, hi, lo);
          shift += n;
@@ -211,7 +233,8 @@ string B100BoxOnTick(B100Box &b,
                      const int min_bars,
                      const int max_bars,
                      const int atr_period,
-                     const double atr_max,
+                     const double h4_frac,
+                     const double widen_frac,
                      const int timeout_bars,
                      const double bid,
                      const double ask)
@@ -292,7 +315,7 @@ string B100BoxOnTick(B100Box &b,
    double hi, lo, atr;
    datetime t0, t1;
    int n = 0;
-   if(!B100FindClusterAt(tf, 1, min_bars, max_bars, atr_period, atr_max, hi, lo, t0, t1, n, atr))
+   if(!B100FindClusterAt(tf, 1, min_bars, max_bars, atr_period, h4_frac, widen_frac, hi, lo, t0, t1, n, atr))
      {
       b.ready = false;
       return "";
@@ -322,6 +345,8 @@ string B100BoxOnTick(B100Box &b,
    b.allow_buy  = true;
    b.allow_sell = true;
    b.dir_gate   = "BOTH";
+   B100RangePattern(tf, 1, n, hi, lo, B100H4Span(),
+                    b.touches_hi, b.touches_lo, b.close_loc, b.compress, b.h_vs_h4);
    B100BoxPushHist(b, t0, t1, hi, lo);
    return "";
   }
@@ -360,9 +385,9 @@ string B100BoxWatchNote(const B100Box &b, const double mid)
       return "RL BUY-only  BUY STOP " + DoubleToString(b.buy_stop, _Digits);
    if(b.dir_gate == "SELL")
       return "RL SELL-only  SELL STOP " + DoubleToString(b.sell_stop, _Digits);
-   return "OCO  BUY STOP " + DoubleToString(b.buy_stop, _Digits) +
-          "  SELL STOP " + DoubleToString(b.sell_stop, _Digits) +
-          "  first fill deletes the other";
+   return "RANGE " + IntegerToString(b.bars) + " bars  H " + DoubleToString(b.height, _Digits) +
+          "  OCO BUY " + DoubleToString(b.buy_stop, _Digits) +
+          "  SELL " + DoubleToString(b.sell_stop, _Digits);
   }
 
 #endif

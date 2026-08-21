@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.87"
-#property description "Box+RL: H4-nested pause, M30 close fill, SL in box heights. Live locked."
+#property version   "1.88"
+#property description "Adaptive M30 range (grow while bars belong). Break-only OCO. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -19,10 +19,11 @@ input ENUM_B100_MODE InpMode           = B100_OBSERVE; // OBSERVE/SHADOW/DEMO(de
 input ENUM_B100_STRAT InpStrategy      = B100_STRAT_BOX_M30; // CHANNEL tick band, or M30 box breakout
 
 input ENUM_TIMEFRAMES InpBoxTF         = PERIOD_M30;   // Box timeframe
-input int            InpBoxMinBars     = 3;            // Min bars in a pause cluster
-input int            InpBoxMaxBars     = 8;            // Max bars in a pause cluster
+input int            InpBoxMinBars     = 4;            // Min M30 bars in a live range (2h)
+input int            InpBoxMaxBars     = 24;           // Max M30 bars (3 H4)
 input int            InpBoxAtrPeriod   = 14;           // unused (kept for old .set files)
-input double         InpBoxH4Frac      = 0.50;         // Pause height ≤ this × last 3 H4 range
+input double         InpBoxH4Frac      = 0.50;         // Range height ≤ this × last 3 H4
+input double         InpBoxWiden       = 0.15;         // Absorb a bar if it widens range by ≤ this
 input double         InpBoxSlBuf       = 0.15;         // SL beyond opposite rail, in box heights
 input int            InpBoxTimeout     = 10;           // Armed closes without fill → cancel
 input bool           InpBoxNoFade      = true;         // Never fade the pause
@@ -191,7 +192,7 @@ int OnInit()
    ZeroMemory(g_levels);
    B100LearnerInit(g_learner);
    B100BoxInit(g_box);
-   B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxH4Frac);
+   B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxH4Frac, InpBoxWiden);
    B100CaptureInit(g_capture, InpCapture);
    B100TrainInit(g_episode);
    if(InpTelegram)
@@ -336,7 +337,7 @@ void OnTick()
    if(InpStrategy == B100_STRAT_BOX_M30)
      {
       labeled = B100BoxOnTick(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars,
-                              InpBoxAtrPeriod, InpBoxH4Frac, InpBoxTimeout, bid, ask);
+                              InpBoxAtrPeriod, InpBoxH4Frac, InpBoxWiden, InpBoxTimeout, bid, ask);
       if(g_box.just_armed)
         {
          string gate = "BOTH";

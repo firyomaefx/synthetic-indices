@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-22 | v1.88 Adaptive M30 range: grow while bars belong to the same high/low (min 4 / max 24), nested in 3 H4 boxes; pattern features (touches, close loc, compress) for ML/RL. Break-only, no fade, no ATR. Live locked. | MQL5 Box/Train/Capture | Owner request |
 | 2026-08-22 | v1.87 Box+RL without ATR decisions: pause nested in last 3 H4 boxes; fill on M30 close outside; SL beyond opposite rail in box heights; quality gate spread vs height. Live locked. | MQL5 Box/Train/EA | Owner request |
 | 2026-08-21 | v1.86 Seamless HF sync: merge train by episode_id, retrain, push/pull policy both ways. 15-min task. Live locked. | tools/break100_hf_sync.py + EA kick file | Owner request |
 | 2026-08-21 | HF as always-on backup trainer: Space UI + Backup-BREAK100-HF.bat pushes train+policy to private dataset. Same policy.csv as EA. Live locked. | tools/hf_space | Owner request |
