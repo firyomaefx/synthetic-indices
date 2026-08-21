@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.89"
-#property description "Telegram replies on the original signal (TP1/2/3 live). Live locked."
+#property version   "1.90"
+#property description "Daily Signal 1+ from 06:00 GMT. Threaded TP/SL. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -713,7 +713,8 @@ void B100TelegramWatch(void)
       g_tg_tp_announced = 0;
       g_tg_thread_bar = g_box.armed_bar;
      }
-   string msg = "👀 BREAK100  WATCH\n";
+   string msg = B100TgSigHead(true);
+   msg += "👀 BREAK100  WATCH\n";
    msg += _Symbol + "  M30\n";
    if(g_oco_buy_px > 0.0)
      {
@@ -765,7 +766,8 @@ void B100TelegramFill(const int dir, const double px, const bool sibling_deleted
    B100FillSlTpFallback(dir, px, sl, tp1, tp2, tp3);
    const string side = (dir > 0) ? "BUY" : "SELL";
    const string face = (dir > 0) ? "🟢" : "🔴";
-   string msg = face + " BREAK100  ENTRY " + side + "\n";
+   string msg = B100TgSigHead(false);
+   msg += face + " BREAK100  ENTRY " + side + "\n";
    msg += _Symbol + "  @ " + B100Px(px) + "\n";
    msg += "🛑 SL   " + B100Px(sl);
    const int slp = B100Pts(px, sl);
@@ -793,7 +795,8 @@ void B100TelegramFill(const int dir, const double px, const bool sibling_deleted
 void B100TelegramCancel(const string reason)
   {
    const string key = B100TgKey("CANCEL");
-   string msg = "⚪ BREAK100  CANCEL\n";
+   string msg = B100TgSigHead(false);
+   msg += "⚪ BREAK100  CANCEL\n";
    msg += _Symbol + "  M30\n";
    msg += reason;
    if(!InpTelegram)
@@ -808,7 +811,8 @@ void B100TelegramTp(const int level, const double px)
    if(g_tg_tp_announced >= level)
       return;
    const string key = B100TgKey("TP" + IntegerToString(level));
-   string msg = "✅ BREAK100  TP" + IntegerToString(level) + " HIT\n";
+   string msg = B100TgSigHead(false);
+   msg += "✅ BREAK100  TP" + IntegerToString(level) + " HIT\n";
    msg += _Symbol + "  @ " + B100Px(px);
    if(g_episode.entry > 0.0)
       msg += "\nfrom ENTRY " + B100Px(g_episode.entry);
@@ -851,7 +855,8 @@ void B100TelegramClose(const string why, const int dir, const double entry, cons
       tag = StringSubstr(why, 6);
    const string side = (dir > 0) ? "BUY" : ((dir < 0) ? "SELL" : "?");
    const string key = B100TgKey("CLOSE_" + tag);
-   string msg = face + " BREAK100  " + tag + "  " + side + "\n";
+   string msg = B100TgSigHead(false);
+   msg += face + " BREAK100  " + tag + "  " + side + "\n";
    msg += _Symbol + "\n";
    msg += "Entry " + B100Px(entry) + "  →  Exit " + B100Px(exit_px) + "\n";
    if(sl > 0.0)

@@ -3,9 +3,15 @@
 
 // Sends alerts via Bot API. Token/chat live in Common Files, not in git.
 
-string g_tg_token = "";
-string g_tg_chat  = "";
-bool   g_tg_ok    = false;
+string   g_tg_token = "";
+string   g_tg_chat  = "";
+bool     g_tg_ok    = false;
+datetime g_tg_session = 0;
+int      g_tg_day_n   = 0;
+int      g_tg_signal_n = 0;
+
+void B100TgDayLoad(void);
+void B100TgDayEnsure(void);
 
 void B100TelegramLoad(void)
   {
@@ -27,8 +33,12 @@ void B100TelegramLoad(void)
      }
    FileClose(fh);
    g_tg_ok = (StringLen(g_tg_token) > 10 && StringLen(g_tg_chat) > 0);
+   B100TgDayLoad();
+   B100TgDayEnsure();
    if(g_tg_ok)
-      Print("B100 Telegram enabled chat=", g_tg_chat);
+      Print("B100 Telegram enabled chat=", g_tg_chat,
+            "  session=", TimeToString(g_tg_session, TIME_DATE | TIME_MINUTES), " GMT",
+            "  signals=", g_tg_day_n);
    else
       Print("B100 Telegram off — put token= and chat= in Common\\Files\\BREAK100_telegram.txt");
   }
@@ -137,6 +147,85 @@ void B100TgRemember(const string key)
 bool B100TelegramOnce(const string key, const string text)
   {
    return (B100TelegramOnceReply(key, text, 0) > 0);
+  }
+
+datetime B100TgSessionStart(const datetime gmt)
+  {
+   MqlDateTime dt;
+   TimeToStruct(gmt, dt);
+   dt.hour = 0;
+   dt.min  = 0;
+   dt.sec  = 0;
+   const datetime midnight = StructToTime(dt);
+   datetime six = midnight + 6 * 3600;
+   if(gmt < six)
+      six -= 24 * 3600;
+   return six;
+  }
+
+void B100TgDaySave(void)
+  {
+   const int fh = FileOpen("BREAK100_tg_day.txt", FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(fh == INVALID_HANDLE)
+      return;
+   FileWriteString(fh, "session=" + IntegerToString((int)g_tg_session) + "\n");
+   FileWriteString(fh, "n=" + IntegerToString(g_tg_day_n) + "\n");
+   FileWriteString(fh, "cur=" + IntegerToString(g_tg_signal_n) + "\n");
+   FileClose(fh);
+  }
+
+void B100TgDayLoad(void)
+  {
+   const int fh = FileOpen("BREAK100_tg_day.txt", FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
+   if(fh == INVALID_HANDLE)
+      return;
+   while(!FileIsEnding(fh))
+     {
+      string line = FileReadString(fh);
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      if(StringFind(line, "session=") == 0)
+         g_tg_session = (datetime)StringToInteger(StringSubstr(line, 8));
+      else if(StringFind(line, "n=") == 0)
+         g_tg_day_n = (int)StringToInteger(StringSubstr(line, 2));
+      else if(StringFind(line, "cur=") == 0)
+         g_tg_signal_n = (int)StringToInteger(StringSubstr(line, 4));
+     }
+   FileClose(fh);
+  }
+
+void B100TgDayEnsure(void)
+  {
+   const datetime start = B100TgSessionStart(TimeGMT());
+   if(g_tg_session != start)
+     {
+      g_tg_session = start;
+      g_tg_day_n = 0;
+      g_tg_signal_n = 0;
+      B100TgDaySave();
+      Print("B100 Telegram day reset  session=", TimeToString(start, TIME_DATE | TIME_MINUTES), " GMT");
+     }
+  }
+
+int B100TgDayBump(void)
+  {
+   B100TgDayEnsure();
+   g_tg_day_n++;
+   g_tg_signal_n = g_tg_day_n;
+   B100TgDaySave();
+   return g_tg_signal_n;
+  }
+
+string B100TgSigHead(const bool new_signal)
+  {
+   B100TgDayEnsure();
+   if(new_signal)
+      B100TgDayBump();
+   if(g_tg_signal_n <= 0)
+      return "";
+   string s = "📋 Signal " + IntegerToString(g_tg_signal_n);
+   s += "   day " + TimeToString(g_tg_session, TIME_DATE | TIME_MINUTES) + " GMT\n";
+   return s;
   }
 
 long B100TelegramOnceReply(const string key, const string text, const long reply_to)
