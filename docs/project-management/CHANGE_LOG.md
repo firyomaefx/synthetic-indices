@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-22 | GitHub README + About, START_HERE, INSTALL, INTEGRATION rewritten to match v2.01 (BREAK100 M30 box OCO, Telegram, HF, live locked). | docs | Owner request |
 | 2026-08-22 | v2.01 6h Telegram status is a short emoji card (time, mode, last M30, n, gate, SL/TP). No HEALTHY/idle/legal footnote. Live locked. | MQL5 Telegram | Owner request |
 | 2026-08-22 | v2.00 After stop fill: dotted horizontal rays + price text on each line (SL / ENTRY / TP1 / TP2 / TP3). Looks like Fib levels; not an OBJ_FIBO. Live locked. | MQL5 visual | Owner request |
 | 2026-08-22 | v1.99 After BUY STOP / SELL STOP fill, chart draws a native MT5 Fibonacci object (dotted rays, price labels) for SL, ENTRY, TP1, TP2, TP3. Fill prices are latched so the lines survive box SCAN. Cleared on the next WATCH. Live locked. | MQL5 visual | Owner request |
