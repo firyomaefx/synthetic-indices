@@ -2,14 +2,14 @@
 
 MQL5 Observe/Shadow EA for **BREAK100** (Boom-class synthetic) on **M30**.
 
-Current EA: **v1.99**. Live orders **source-locked**. **No profit claim.**
+Current EA: **v2.00**. Live orders **source-locked**. **No profit claim.**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled)`
 
 ## What it does
 
 1. Find a **tight M30 range** (4–8 bars, height ≤ 25% of last 1 H4). Warehouse shows this range often sits **before** a long candle.
-2. **WATCH** both sides. **Fill** when M30 **closes** outside — that close *is* the big move. First fill cancels the other (OCO). After fill, the chart draws a **Fibonacci** object: dotted **SL / ENTRY / TP1 / TP2 / TP3** with prices (same idea as MT5 Fib lines).
+2. **WATCH** both sides. **Fill** when M30 **closes** outside — that close *is* the big move. First fill cancels the other (OCO). After fill: dotted **SL / ENTRY / TP1 / TP2 / TP3** rays with the **price on each line** (looks like Fib levels; not a Fib object).
 3. If a long candle already printed before the range (`InpImpulseK` > 0), tag `IMPULSE_THEN_RANGE`; default `InpImpulseK=0` is **range-then-break**.
 4. SL beyond the opposite rail, TP in **box heights**. ML logs `phase`.
 
@@ -56,7 +56,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v1.99) |
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.00) |
 | `mql5/Include/Break100/` | Box, Capture, Train, Telegram, DemoExec, Learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with Hub |
@@ -74,6 +74,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **2.00** | After fill: dotted SL / ENTRY / TP1 / TP2 / TP3 rays with price text on the line (Fib look, not a Fib object) |
 | **1.99** | After BUY STOP / SELL STOP fill: native MT5 Fibonacci object, dotted SL / ENTRY / TP1 / TP2 / TP3 with prices; stays until the next WATCH |
 | **1.98** | After fill: dotted ENTRY/SL/TP1/TP2/TP3 lines with price tags (Fib-style) |
 | **1.97** | Journal BUY mint / SELL magenta so arrows do not match candle colors |

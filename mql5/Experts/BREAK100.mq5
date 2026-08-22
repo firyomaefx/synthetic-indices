@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.99"
-#property description "Native MT5 Fib SL/TP1/TP2/TP3 with prices after stop fill. Live locked."
+#property version   "2.00"
+#property description "Dotted SL/TP lines with prices on the line after stop fill. Not a Fib object. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -1586,21 +1586,6 @@ void B100HLine(const string name, const color clr, const ENUM_LINE_STYLE style)
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
   }
 
-void B100LevelLine(const string name, const double price, const color clr, const ENUM_LINE_STYLE style, const string caption)
-  {
-   if(ObjectFind(0, name) < 0)
-      ObjectCreate(0, name, OBJ_HLINE, 0, 0, price);
-   ObjectSetDouble(0, name, OBJPROP_PRICE, price);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
-   ObjectSetInteger(0, name, OBJPROP_STYLE, style);
-   ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
-   ObjectSetInteger(0, name, OBJPROP_BACK, false);
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
-   ObjectSetString(0, name, OBJPROP_TOOLTIP, caption + " " + DoubleToString(price, _Digits));
-  }
-
 void B100HideLevels(void)
   {
    ObjectSetInteger(0, LV_ENTRY, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
@@ -1647,7 +1632,7 @@ void B100FibLatch(const int dir, const double entry, const double sl, const doub
          g_fib.t1 = g_fib.t0 + PeriodSeconds(PERIOD_M30);
      }
    if(fresh)
-      Print("B100 Fib  ", (dir > 0 ? "BUY" : "SELL"),
+      Print("B100 levels  ", (dir > 0 ? "BUY" : "SELL"),
             "  ENTRY ", DoubleToString(entry, _Digits),
             "  SL ", DoubleToString(sl, _Digits),
             "  TP1 ", DoubleToString(tp1, _Digits),
@@ -1655,45 +1640,104 @@ void B100FibLatch(const int dir, const double entry, const double sl, const doub
             "  TP3 ", DoubleToString(tp3, _Digits));
   }
 
-void B100FibLevel(const int idx, const double ratio, const string tag, const double price, const color clr)
+void B100LevelRay(const string name, const datetime t0, const datetime t1, const double price, const color clr, const string caption)
   {
-   ObjectSetDouble(0, LV_FIBO, OBJPROP_LEVELVALUE, idx, ratio);
-   ObjectSetString(0, LV_FIBO, OBJPROP_LEVELTEXT, idx,
-                   tag + "  " + DoubleToString(price, _Digits));
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_LEVELCOLOR, idx, clr);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_LEVELSTYLE, idx, STYLE_DOT);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_LEVELWIDTH, idx, 1);
+   if(price <= 0.0)
+     {
+      ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      return;
+     }
+   if(ObjectFind(0, name) >= 0 &&
+      (ENUM_OBJECT)ObjectGetInteger(0, name, OBJPROP_TYPE) != OBJ_TREND)
+      ObjectDelete(0, name);
+   datetime ta = t0;
+   datetime tb = t1;
+   if(ta == 0)
+      ta = TimeCurrent() - 4 * PeriodSeconds(PERIOD_CURRENT);
+   if(tb <= ta)
+      tb = ta + PeriodSeconds(PERIOD_CURRENT);
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_TREND, 0, ta, price, tb, price);
+   ObjectSetInteger(0, name, OBJPROP_TIME, 0, ta);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, 0, price);
+   ObjectSetInteger(0, name, OBJPROP_TIME, 1, tb);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, 1, price);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_DOT);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
+   ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, true);
+   ObjectSetInteger(0, name, OBJPROP_RAY_LEFT, false);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+   ObjectSetString(0, name, OBJPROP_TOOLTIP, caption + " " + DoubleToString(price, _Digits));
+  }
+
+void B100LevelTag(const string name, const datetime t, const double price, const string text, const color clr)
+  {
+   if(price <= 0.0 || text == "")
+     {
+      ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      return;
+     }
+   if(ObjectFind(0, name) >= 0 &&
+      (ENUM_OBJECT)ObjectGetInteger(0, name, OBJPROP_TYPE) != OBJ_TEXT)
+      ObjectDelete(0, name);
+   datetime tx = t;
+   if(tx == 0)
+      tx = TimeCurrent();
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_TEXT, 0, tx, price);
+   ObjectSetInteger(0, name, OBJPROP_TIME, 0, tx);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, 0, price);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 8);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+  }
+
+void B100PaintOneLevel(const string ray, const string tag, const datetime t0, const datetime t1, const datetime tx,
+                       const double price, const string label, const color clr)
+  {
+   B100LevelRay(ray, t0, t1, price, clr, label);
+   if(price > 0.0)
+      B100LevelTag(tag, tx, price, label + "  " + DoubleToString(price, _Digits), clr);
   }
 
 void B100PaintLevels()
   {
+   ObjectDelete(0, LV_FIBO);
    if(!InpDrawLevels)
      {
       B100HideLevels();
       return;
      }
-   double en = 0, sl = 0, t1 = 0, t2 = 0, t3 = 0;
-   datetime ta = 0, tb = 0;
+   double en = 0, sl = 0, p1 = 0, p2 = 0, p3 = 0;
+   datetime ta = 0;
    bool path = false;
    if(g_fib.on && g_fib.entry > 0.0 && g_fib.sl > 0.0)
      {
       path = true;
       en = g_fib.entry;
       sl = g_fib.sl;
-      t1 = g_fib.tp1;
-      t2 = g_fib.tp2;
-      t3 = g_fib.tp3;
+      p1 = g_fib.tp1;
+      p2 = g_fib.tp2;
+      p3 = g_fib.tp3;
       ta = g_fib.t0;
-      tb = g_fib.t1;
      }
    else if(g_episode.tracking && g_episode.entry > 0.0)
      {
       path = true;
       en = g_episode.entry;
       sl = g_episode.sl;
-      t1 = g_episode.tp1;
-      t2 = g_episode.tp2;
-      t3 = g_episode.tp3;
+      p1 = g_episode.tp1;
+      p2 = g_episode.tp2;
+      p3 = g_episode.tp3;
      }
    else if(g_levels.valid &&
            (g_signal == "BUY" || g_signal == "SELL" || g_signal == "HOLD"))
@@ -1701,17 +1745,11 @@ void B100PaintLevels()
       path = true;
       en = g_levels.entry;
       sl = g_levels.sl;
-      t1 = g_levels.tp1;
-      t2 = g_levels.tp2;
-      t3 = g_levels.tp3;
+      p1 = g_levels.tp1;
+      p2 = g_levels.tp2;
+      p3 = g_levels.tp3;
      }
    if(!path)
-     {
-      B100HideLevels();
-      return;
-     }
-   const double span = en - sl;
-   if(MathAbs(span) < _Point)
      {
       B100HideLevels();
       return;
@@ -1720,44 +1758,16 @@ void B100PaintLevels()
       ta = iTime(_Symbol, PERIOD_CURRENT, 4);
    if(ta == 0)
       ta = TimeCurrent() - 4 * PeriodSeconds(PERIOD_CURRENT);
+   datetime tb = iTime(_Symbol, PERIOD_CURRENT, 0);
    if(tb <= ta)
       tb = ta + PeriodSeconds(PERIOD_CURRENT);
+   const datetime tx = tb + PeriodSeconds(PERIOD_CURRENT);
 
-   if(ObjectFind(0, LV_FIBO) < 0)
-      ObjectCreate(0, LV_FIBO, OBJ_FIBO, 0, ta, sl, tb, en);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_TIME, 0, ta);
-   ObjectSetDouble(0, LV_FIBO, OBJPROP_PRICE, 0, sl);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_TIME, 1, tb);
-   ObjectSetDouble(0, LV_FIBO, OBJPROP_PRICE, 1, en);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_COLOR, C'170,170,180');
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_STYLE, STYLE_DOT);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_WIDTH, 1);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_RAY_RIGHT, true);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_RAY_LEFT, false);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_BACK, false);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_FILL, false);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_FONTSIZE, 8);
-
-   int n = 2;
-   if(t1 > 0.0)
-      n++;
-   if(t2 > 0.0)
-      n++;
-   if(t3 > 0.0)
-      n++;
-   ObjectSetInteger(0, LV_FIBO, OBJPROP_LEVELS, n);
-   int i = 0;
-   B100FibLevel(i++, 0.0, "SL", sl, CLR_ARR_SELL);
-   B100FibLevel(i++, 1.0, "ENTRY", en, clrSilver);
-   if(t1 > 0.0)
-      B100FibLevel(i++, (t1 - sl) / span, "TP1", t1, CLR_ARR_BUY);
-   if(t2 > 0.0)
-      B100FibLevel(i++, (t2 - sl) / span, "TP2", t2, C'40,180,140');
-   if(t3 > 0.0)
-      B100FibLevel(i++, (t3 - sl) / span, "TP3", t3, C'30,140,110');
+   B100PaintOneLevel(LV_ENTRY, LV_ENTRY_L, ta, tb, tx, en, "ENTRY", clrSilver);
+   B100PaintOneLevel(LV_SL,    LV_SL_L,    ta, tb, tx, sl, "SL",    CLR_ARR_SELL);
+   B100PaintOneLevel(LV_TP1,   LV_TP1_L,   ta, tb, tx, p1, "TP1",   CLR_ARR_BUY);
+   B100PaintOneLevel(LV_TP2,   LV_TP2_L,   ta, tb, tx, p2, "TP2",   C'40,180,140');
+   B100PaintOneLevel(LV_TP3,   LV_TP3_L,   ta, tb, tx, p3, "TP3",   C'30,140,110');
    ChartRedraw(0);
   }
 
