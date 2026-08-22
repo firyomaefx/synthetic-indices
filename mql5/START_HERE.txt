@@ -1,6 +1,6 @@
-BREAK100 v1.94 — START HERE
+BREAK100 v1.95 — START HERE
 ===========================
-Compile 1.94. Attach M30 only. Telegram M30 only. Live locked.
+Compile 1.95. Attach M30 only. Telegram M30 only. Capture always on. Live locked.
 
 Seamless train data (PC + Hugging Face stay the same)
   1. Copy BREAK100_hf.txt.example -> Common\\Files\\BREAK100_hf.txt

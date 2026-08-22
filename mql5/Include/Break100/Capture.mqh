@@ -261,7 +261,7 @@ void B100CaptureDeinit(B100Capture &c)
    c.enabled = false;
   }
 
-void B100CaptureOnTick(B100Capture &c)
+void B100CaptureHeartbeat(B100Capture &c)
   {
    if(!c.enabled)
       return;
@@ -270,13 +270,42 @@ void B100CaptureOnTick(B100Capture &c)
       B100CapFlushTicks(c);
       B100CapOpenTicks(c);
      }
+   if(c.tick_fh == INVALID_HANDLE)
+      B100CapOpenTicks(c);
+   const uint now = GetTickCount();
+   if(now < c.last_flush_ms)
+      c.last_flush_ms = now;
+   if(now < c.last_reopen_ms)
+      c.last_reopen_ms = now;
+   if(c.buf_n >= B100_FLUSH_TICKS || (now - c.last_flush_ms) >= B100_FLUSH_MS)
+      B100CapFlushTicks(c);
+   if((now - c.last_reopen_ms) >= 30000)
+     {
+      B100CapFlushTicks(c);
+      B100CapOpenTicks(c);
+      for(int i = 0; i < B100_CAP_TFS; i++)
+         B100CapOpenBar(c, i);
+      c.last_reopen_ms = now;
+     }
+   for(int i = 0; i < B100_CAP_TFS; i++)
+     {
+      if(c.bar_fh[i] == INVALID_HANDLE)
+         B100CapOpenBar(c, i);
+      B100CapWriteClosedBar(c, i);
+     }
+   if(c.last_acct_ms == 0 || now < c.last_acct_ms || (now - c.last_acct_ms) >= 5000)
+      B100CaptureAccount(c);
+  }
+
+void B100CaptureOnTick(B100Capture &c)
+  {
+   if(!c.enabled)
+      return;
    MqlTick tick;
    if(SymbolInfoTick(_Symbol, tick) && tick.bid > 0.0 && tick.ask >= tick.bid)
      {
       const double sp = tick.ask - tick.bid;
-      if(sp > tick.bid * 0.02)
-         ; // drop garbage ticks from warehouse (2%+ spread)
-      else
+      if(sp <= tick.bid * 0.02)
         {
          if(c.buf_n >= B100_TICK_BUF)
             B100CapFlushTicks(c);
@@ -291,21 +320,7 @@ void B100CaptureOnTick(B100Capture &c)
          c.tick_count++;
         }
      }
-   const uint now = GetTickCount();
-   if(c.buf_n >= B100_FLUSH_TICKS || (now - c.last_flush_ms) >= B100_FLUSH_MS)
-      B100CapFlushTicks(c);
-   if((now - c.last_reopen_ms) >= 30000)
-     {
-      B100CapFlushTicks(c);
-      B100CapOpenTicks(c);
-      for(int i = 0; i < B100_CAP_TFS; i++)
-         B100CapOpenBar(c, i);
-      c.last_reopen_ms = now;
-     }
-   for(int i = 0; i < B100_CAP_TFS; i++)
-      B100CapWriteClosedBar(c, i);
-   if(c.last_acct_ms == 0 || (now - c.last_acct_ms) >= 5000)
-      B100CaptureAccount(c);
+   B100CaptureHeartbeat(c);
   }
 
 void B100CaptureAccount(B100Capture &c)

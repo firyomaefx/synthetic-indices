@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-22 | v1.95 Always-on capture: ticks/bars/account on every tick + OnTimer 60s heartbeat; file reopen wrap-safe; warehouse forced on while EA attached. Live locked. | MQL5 Capture | Owner request |
 | 2026-08-22 | README.md brought to v1.94; release rule: every EA/tools change updates GitHub README in the same commit. | docs | Owner request |
 | 2026-08-22 | v1.94 Telegram hard-lock: send only if chart is M30 and InpBoxTF is M30. Other TFs log OFF. Live locked. | MQL5 Telegram | Owner request |
 | 2026-08-22 | v1.93 Telegram only from M30 chart; ENTRY/SL share g_levels; send-then-remember; reply-fail fallback; pts = price difference; faster WebRequest. Live locked. | MQL5 Telegram | Owner request |

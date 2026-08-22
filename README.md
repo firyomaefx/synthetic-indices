@@ -2,7 +2,7 @@
 
 MQL5 Observe/Shadow EA for **BREAK100** (Boom-class synthetic) on **M30**.
 
-Current EA: **v1.94** (`bb2b2a2`). Live orders **source-locked**. **No profit claim.**
+Current EA: **v1.95**. Live orders **source-locked**. **No profit claim.**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled)`
 
@@ -56,7 +56,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v1.94) |
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v1.95) |
 | `mql5/Include/Break100/` | Box, Capture, Train, Telegram, DemoExec, Learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with Hub |
@@ -74,6 +74,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **1.95** | Warehouse always on: ticks + M1–H4 + account every tick and every 60s timer, even if health FAULT |
 | **1.94** | Telegram **M30 chart only** |
 | 1.93 | SL replies; same SL as tracker; honest pts; send-then-remember |
 | 1.92 | Impulse then small range then break |

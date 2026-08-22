@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.94"
-#property description "Telegram alerts M30 chart only. Live locked."
+#property version   "1.95"
+#property description "Always-on tick/bar warehouse. Telegram M30 only. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -58,7 +58,7 @@ input bool           InpAttachIndicator= true;         // Attach visual indicato
 input bool           InpDrawArrows     = true;         // Arrows on buy/sell/exit
 input bool           InpDrawLevels     = true;         // Draw entry/SL/TP lines
 input bool           InpAlerts         = true;         // Popup on BUY/SELL/EXIT
-input bool           InpCapture        = true;         // Ticks + M1-H4 + ARM setup before breakout
+input bool           InpCapture        = true;         // Always-on ticks + M1-H4 + account (forced while EA attached)
 input bool           InpTelegram       = true;         // Telegram: M30 chart only (other TFs silent)
 input int            InpStatusHours    = 6;            // ML/RL status to Telegram (0=off)
 
@@ -202,7 +202,7 @@ int OnInit()
    B100LearnerInit(g_learner);
    B100BoxInit(g_box);
    B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxH4Frac, InpBoxWiden, InpImpulseK);
-   B100CaptureInit(g_capture, InpCapture);
+   B100CaptureInit(g_capture, true);
    B100TrainInit(g_episode);
    if(InpTelegram)
      {
@@ -279,6 +279,7 @@ int OnInit()
 
 void OnTimer()
   {
+   B100CaptureHeartbeat(g_capture);
    B100MaybeStatus();
   }
 
@@ -325,8 +326,7 @@ void OnTick()
   {
    const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    const double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   if(g_ready && bid > 0.0 && ask >= bid)
-      B100CaptureOnTick(g_capture);
+   B100CaptureOnTick(g_capture);
 
    if(!g_ready || g_mode.health != B100_HEALTHY)
      {
