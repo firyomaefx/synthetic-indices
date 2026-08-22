@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.00"
-#property description "Dotted SL/TP lines with prices on the line after stop fill. Not a Fib object. Live locked."
+#property version   "2.01"
+#property description "Short emoji Telegram status. Dotted SL/TP after fill. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -955,48 +955,69 @@ void B100StatusWriteGmt(const datetime t)
 
 void B100TelegramStatus(void)
   {
-   const bool policy_file = FileIsExist(B100PolicyFileName(), FILE_COMMON);
-   string last_m30 = "-";
-   if(g_capture.last_bar_time[3] > 0)
-      last_m30 = TimeToString(g_capture.last_bar_time[3], TIME_DATE | TIME_MINUTES);
-   string box_line = "scanning";
-   if(g_box.ready && g_box.state == B100_BOX_ARMED)
-      box_line = "WATCH BUY " + DoubleToString(g_box.buy_stop, _Digits) +
-                 "  SELL " + DoubleToString(g_box.sell_stop, _Digits);
-   else if(g_last_event != "")
-      box_line = "last " + g_last_event;
-   else if(g_signal != "")
-      box_line = g_signal;
+   string msg = "📊 " + TimeToString(TimeGMT(), TIME_MINUTES) + " GMT\n";
+   if(g_mode.health != B100_HEALTHY)
+      msg += "⚠️ " + B100ModeName(g_mode.mode) + "  " + g_mode.block_reason + "\n";
+   else if(g_mode.mode == B100_SHADOW)
+      msg += "👻 SHADOW\n";
+   else if(g_mode.mode == B100_DEMO)
+      msg += "🧪 DEMO\n";
+   else
+      msg += "👁 " + B100ModeName(g_mode.mode) + "\n";
 
-   string msg = "📊 BREAK100  status  " + _Symbol + "\n";
-   msg += "gmt " + TimeToString(TimeGMT(), TIME_DATE | TIME_MINUTES) + "\n";
-   msg += "mode " + B100ModeName(g_mode.mode);
-   msg += "  health " + (g_mode.health == B100_HEALTHY ? "HEALTHY" : "FAULT");
-   msg += "  telegram " + (g_tg_ok && InpTelegram ? "ON" : "OFF") + "\n";
-   msg += "capture ticks=" + IntegerToString((int)g_capture.tick_count);
-   msg += "  written=" + IntegerToString((int)g_capture.tick_written) + "\n";
-   msg += "  setup=" + IntegerToString((int)g_capture.setup_n);
-   msg += "  outcome=" + IntegerToString((int)g_capture.outcome_n);
-   msg += "  last M30=" + last_m30 + "\n";
-   msg += "train " + (g_episode.tracking ? "PATH" : (g_episode.active ? "ARMED" : "idle"));
-   msg += "  q=" + IntegerToString(g_episode.quality);
-   msg += "  " + g_episode.q_reason + "\n";
-   msg += "learner n=" + IntegerToString(g_learner.n) + "/" + IntegerToString(B100_LEARN_MAX);
-   msg += "  policy=" + (g_policy.source == "" ? "none" : g_policy.source) + "\n";
-   msg += "  arm=" + (g_policy.arm_id == "" ? "-" : g_policy.arm_id);
-   msg += "  gate=" + (g_policy.dir_gate == "" ? "BOTH" : g_policy.dir_gate);
-   msg += "  p=" + DoubleToString(g_policy.p_up, 2) + "/" +
-          DoubleToString(g_policy.p_dn, 2) + "/" + DoubleToString(g_policy.p_fail, 2);
-   msg += "  SL=" + DoubleToString(g_policy.sl_r, 2) + "R";
-   msg += "  TP=" + DoubleToString(g_policy.tp1_r, 2) + "/" +
-          DoubleToString(g_policy.tp2_r, 2) + "/" + DoubleToString(g_policy.tp3_r, 2) + "R\n";
-   msg += "offline policy file=" + (policy_file ? "yes" : "no") + "\n";
-   msg += "box session armed=" + IntegerToString(g_box.n_boxes);
-   msg += "  UP=" + IntegerToString(g_box.n_break_up);
-   msg += "  DN=" + IntegerToString(g_box.n_break_dn);
-   msg += "  fail=" + IntegerToString(g_box.n_fail) + "\n";
-   msg += "  " + box_line + "\n";
-   msg += "note: Observe/Shadow data job. No live orders. Not a profit claim.";
+   if(g_capture.last_bar_time[3] > 0)
+      msg += "✅ M30 " + TimeToString(g_capture.last_bar_time[3], TIME_MINUTES) + "\n";
+   else
+      msg += "⚠️ no M30\n";
+
+   if(g_episode.tracking)
+      msg += "📍 PATH\n";
+   else if(g_episode.active)
+      msg += "📍 ARMED\n";
+
+   string gate = (g_policy.dir_gate == "" ? "BOTH" : g_policy.dir_gate);
+   string gface = "↔️";
+   if(gate == "SKIP")
+      gface = "🚫";
+   else if(gate == "BUY")
+      gface = "🟢";
+   else if(gate == "SELL")
+      gface = "🔴";
+   msg += "🧠 " + IntegerToString(g_learner.n) + "  " + gface + " " + gate;
+   if(gate == "SKIP")
+      msg += "  trap " + IntegerToString((int)MathRound(100.0 * g_policy.p_fail)) + "%";
+   msg += "\n";
+
+   if(g_policy.sl_r > 0.0)
+      msg += "🎯 " + DoubleToString(g_policy.sl_r, 1) + "R → " +
+             DoubleToString(g_policy.tp1_r, 1) + "  " +
+             DoubleToString(g_policy.tp2_r, 1) + "  " +
+             DoubleToString(g_policy.tp3_r, 1) + "\n";
+
+   if(g_box.ready && g_box.state == B100_BOX_ARMED)
+     {
+      msg += "👀 ";
+      if(g_box.allow_buy && g_box.buy_stop > 0.0)
+         msg += "🟢 " + DoubleToString(g_box.buy_stop, _Digits) + "  ";
+      if(g_box.allow_sell && g_box.sell_stop > 0.0)
+         msg += "🔴 " + DoubleToString(g_box.sell_stop, _Digits);
+      msg += "\n";
+     }
+   else
+     {
+      if(g_box.n_break_up + g_box.n_break_dn + g_box.n_fail > 0)
+         msg += "📦 " + IntegerToString(g_box.n_break_up) + "↑  " +
+                IntegerToString(g_box.n_break_dn) + "↓  " +
+                IntegerToString(g_box.n_fail) + "✗\n";
+      if(g_signal == "BUY")
+         msg += "🟢 BUY\n";
+      else if(g_signal == "SELL")
+         msg += "🔴 SELL\n";
+      else if(g_signal == "HOLD")
+         msg += "📌 HOLD\n";
+      else if(g_signal != "")
+         msg += "⏳ " + g_signal + "\n";
+     }
    B100Tg(msg);
    Print("B100 ML/RL status sent");
   }

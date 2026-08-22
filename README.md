@@ -2,7 +2,7 @@
 
 MQL5 Observe/Shadow EA for **BREAK100** (Boom-class synthetic) on **M30**.
 
-Current EA: **v2.00**. Live orders **source-locked**. **No profit claim.**
+Current EA: **v2.01**. Live orders **source-locked**. **No profit claim.**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled)`
 
@@ -13,7 +13,7 @@ Current EA: **v2.00**. Live orders **source-locked**. **No profit claim.**
 3. If a long candle already printed before the range (`InpImpulseK` > 0), tag `IMPULSE_THEN_RANGE`; default `InpImpulseK=0` is **range-then-break**.
 4. SL beyond the opposite rail, TP in **box heights**. ML logs `phase`.
 
-Telegram (M30 chart only): daily **Signal 1, 2, …** from **06:00 GMT**; ENTRY/TP/SL **reply** on that signal. SL skipped if TP1 already posted.
+Telegram (M30 chart only): daily **Signal 1, 2, …** from **06:00 GMT**; ENTRY/TP/SL **reply** on that signal. SL skipped if TP1 already posted. 6h status is a short emoji card (no essay).
 
 ## Attach (laptop MT5)
 
@@ -56,7 +56,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.00) |
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.01) |
 | `mql5/Include/Break100/` | Box, Capture, Train, Telegram, DemoExec, Learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with Hub |
@@ -74,6 +74,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **2.01** | 6h Telegram status: emoji + numbers only (drop HEALTHY / idle / legal footnote) |
 | **2.00** | After fill: dotted SL / ENTRY / TP1 / TP2 / TP3 rays with price text on the line (Fib look, not a Fib object) |
 | **1.99** | After BUY STOP / SELL STOP fill: native MT5 Fibonacci object, dotted SL / ENTRY / TP1 / TP2 / TP3 with prices; stays until the next WATCH |
 | **1.98** | After fill: dotted ENTRY/SL/TP1/TP2/TP3 lines with price tags (Fib-style) |
