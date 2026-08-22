@@ -1,47 +1,38 @@
-# One repo, two Grok Build agents
+# One repo, two machines
 
-There is no live shared disk between **web Grok Build** (grok.com chat) and
-**laptop Grok Build** (`Grok Build 1.0.5` at `C:\Users\User`). They integrate
-only through this GitHub remote.
+Web Grok and laptop Grok do not share a disk. They meet only here:
+
+`https://github.com/firyomaefx/synthetic-indices`
 
 ```
 github.com/firyomaefx/synthetic-indices
-        │
-        ├── web Grok Build (this product UI / zip)
-        └── laptop Grok Build (PowerShell, MetaEditor, your MT5)
+        |
+        |-- web Grok (edits in the cloud)
+        +-- laptop Grok (PowerShell, MetaEditor, your MT5)
 ```
 
-## What each agent owns
+## Who does what
 
-| Agent | Can do | Cannot do |
+| | Can | Cannot |
 |---|---|---|
-| Web Grok Build | Edit sources, pack zip, Windows trainer `.exe` | Touch your MT5, press F7, remote the PC |
-| Laptop Grok Build | `git clone`, copy into `%APPDATA%\MetaQuotes`, run `metaeditor64.exe /compile` | See the web sandbox files until you `git pull` |
+| Web Grok | Edit sources, rewrite docs | Touch your MT5, press F7 |
+| Laptop Grok | `git pull`, copy into `%APPDATA%\MetaQuotes`, compile | See web files until you pull |
+
+Current EA on the laptop: **v2.01**. Chart: **BREAK100 M30**. Live locked.
 
 ## Laptop — first run
-
-In Grok Build 1.0.5: **New worktree** (`Ctrl+W`), then paste
-`prompts/LAPTOP_GROK.md` or this:
 
 ```
 git clone https://github.com/firyomaefx/synthetic-indices.git
 cd synthetic-indices
-git pull
-
-Copy mql5/Experts, mql5/Indicators, mql5/Include/Break100 into every
-%APPDATA%\MetaQuotes\Terminal\<hash>\MQL5\ matching folder.
-
-Find metaeditor64.exe. Compile BREAK100_Channel.mq5 then BREAK100.mq5
-with /compile /include /log. Both must be 0 errors. Version 1.42.
-
-Do not add OrderSend. AutoTrading stays OFF. Real account is OK for ticks.
-Then tell me how to attach BREAK100 to Boom 100 Index M1.
+git pull origin master
 ```
 
-Or from PowerShell in the clone:
+Copy `mql5/Experts/BREAK100.mq5` and `mql5/Include/Break100/*` into each terminal `MQL5` folder. Compile with MetaEditor. **0 errors.** Attach on **BREAK100 M30** only.
+
+Or:
 
 ```powershell
-# Install-BREAK100.ps1 expects a sibling MQL5\ tree. Create it once:
 cd synthetic-indices
 New-Item -ItemType Directory -Force mql5-pack\MQL5 | Out-Null
 Copy-Item -Recurse -Force mql5\Experts, mql5\Indicators, mql5\Include mql5-pack\MQL5\
@@ -50,12 +41,4 @@ cd mql5-pack
 powershell -ExecutionPolicy Bypass -File .\Install-BREAK100.ps1
 ```
 
-## Web — keep GitHub current
-
-After this chat changes MQL5 or the learner, commit and `git push` to
-`master`. On the laptop: `git pull`, then re-run the installer.
-
-## Safety
-
-Observe/Shadow only. No broker orders. Demo/Live remain NO-GO.
-No profitability claim.
+Secrets stay in Common Files (`BREAK100_telegram.txt`, `BREAK100_hf.txt`). Never in git.

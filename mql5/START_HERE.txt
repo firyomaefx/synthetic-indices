@@ -1,15 +1,31 @@
-BREAK100 v1.96 — START HERE
+BREAK100 v2.01 — START HERE
 ===========================
-Compile 1.96. Attach M30 only. Range-then-break default. Telegram M30 only. Capture always on. Live locked.
 
-Seamless train data (PC + Hugging Face stay the same)
-  1. Copy BREAK100_hf.txt.example -> Common\\Files\\BREAK100_hf.txt
-     token=hf_...
-     dataset=yourname/break100-boom
-  2. Run tools\\Install-BREAK100-HF-Sync.ps1
-     (every 15 min: merge train rows, retrain, push/pull policy)
-  3. EA writes a kick file on every closed episode so sync is not stale
-  4. Phone Space still works — next PC sync merges those rows in
+What this is
+  M30 box breakout on BREAK100. Watch both stops. First fill cancels the other.
+  After fill: dotted SL / ENTRY / TP1 / TP2 / TP3 with the price on each line.
+  Telegram from the M30 chart only. Live orders locked. Not a profit claim.
 
-Same policy.csv the EA already loads. Need 16+ quality=1 rows.
-Not a profit claim.
+Attach
+  1. Compile BREAK100.mq5 in MetaEditor (F7). 0 errors.
+  2. Chart: BREAK100, timeframe M30 only.
+  3. Attach EA. InpStrategy = BOX_M30. InpMode = OBSERVE (or SHADOW).
+  4. Real account: AutoTrading OFF. Experts log: B100 Telegram ON  chart=M30
+
+Telegram (Common\Files\BREAK100_telegram.txt — not in git)
+  token=...
+  chat=...
+  MT5 → Options → Expert Advisors → allow https://api.telegram.org
+  Daily Signal 1,2,… from 06:00 GMT. ENTRY/TP/SL reply on that signal.
+
+Hugging Face (Common\Files\BREAK100_hf.txt — not in git)
+  token=hf_...
+  dataset=yourname/break100-boom
+  Run tools\Install-BREAK100-HF-Sync.ps1 (every 15 min: merge, retrain, push/pull)
+  Need 16+ quality=1 rows in BREAK100_train_*.csv
+
+Modes
+  OBSERVE  draw + Telegram + data, no orders
+  SHADOW   virtual fills
+  DEMO_AUTO pending stops on a demo account only
+  LIVE     rejected in source
