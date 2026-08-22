@@ -1,42 +1,67 @@
-# BREAK100 Adaptive Trading System
+# BREAK100
 
-Safety-first Observe/Shadow platform for BREAK100 channel-touch, bounce, and
-breakout events.
+MQL5 Observe/Shadow EA for **BREAK100** (Boom-class synthetic) on **M30**.
 
-`OBSERVE -> SHADOW -> DEMO -> LIVE_CANARY -> LIVE`
+Current EA: **v1.94** (`bb2b2a2`). Live orders **source-locked**. **No profit claim.**
 
-AUTO/LIVE trading is unavailable. No profitability claim.
+`OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled)`
 
-## Two Grok Builds, one repo
+## What it does
 
-Web Grok Build (grok.com) and laptop Grok Build 1.0.5 (`C:\Users\User`) **do
-not share a disk**. They combine through this GitHub remote.
+1. Wait for a **long M30 candle** (impulse).
+2. Draw a **small range** after it (4–8 overlapping M30 bars, height ≤ 25% of last 1 H4). The impulse is **not** inside the box.
+3. **WATCH** both sides. **Fill** only if M30 **closes** outside the box. First fill cancels the other (OCO).
+4. SL beyond the opposite rail, TP in **box heights**. ML/RL (UCB) sizes SL/TP from unique quality episodes; direction gate SKIP / BUY-only / SELL-only / OCO.
 
-Read **[INTEGRATION.md](INTEGRATION.md)** and paste
-**[prompts/LAPTOP_GROK.md](prompts/LAPTOP_GROK.md)** into the laptop app.
+Telegram (M30 chart only): daily **Signal 1, 2, …** from **06:00 GMT**; ENTRY/TP/SL **reply** on that signal. SL skipped if TP1 already posted.
+
+## Attach (laptop MT5)
+
+Desktop MT5 only. Not the iPhone app.
+
+1. `git pull origin master` in `synthetic-indices`.
+2. Copy `mql5/Experts/BREAK100.mq5` and `mql5/Include/Break100/*` into the terminal `MQL5` folder (or run MetaEditor compile).
+3. Attach **BREAK100** on **BREAK100 M30** only. AutoTrading **OFF** on a real account.
+4. Experts log must show `B100 Telegram ON  chart=M30`. Other TFs: `Telegram OFF`.
+
+Do **not** run the EA on M1/M5/M15 if you want a single Telegram stream.
+
+Real account is for **ticks and capture**. `DEMO_AUTO` requires a **demo** login. LIVE is rejected in source.
+
+## Telegram
+
+Config (not in git): `%APPDATA%\MetaQuotes\Terminal\Common\Files\BREAK100_telegram.txt`
+
+```
+token=...
+chat=...
+```
+
+MT5 → Tools → Options → Expert Advisors → allow `https://api.telegram.org`.
+
+## Hugging Face (free tier)
+
+Private dataset backup + PC retrain. Gradio Space needs Pro — skipped.
+
+Config (not in git): `Common\Files\BREAK100_hf.txt` (`token=` `dataset=`).
+
+```powershell
+python tools/break100_hf_train.py
+python tools/break100_hf_sync.py
+```
+
+15-min task: `tools/Install-BREAK100-HF-Sync.ps1`. Need **16+** `quality=1` rows in `BREAK100_train_*.csv`.
 
 ## Layout
 
 | Path | What |
 |---|---|
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v1.94) |
+| `mql5/Include/Break100/` | Box, Capture, Train, Telegram, DemoExec, Learner |
+| `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
+| `tools/break100_hf_sync.py` | Merge train/policy with Hub |
 | `src/break100/` | Python G1 mode / SafeEV / risk |
-| `mql5/` | MT5 EA v1.42, indicator, includes, `Install-BREAK100.ps1` |
-| `tools/break100_trainer.c` | Offline REINFORCE trainer source |
-| `desk/` | TypeScript Observe kernel (same learner as the EA) |
 | `tests/` | Python contract tests |
-
-## Laptop (compile + attach)
-
-Desktop MT5 must already be installed. iPhone app cannot attach a custom EA.
-
-```powershell
-git clone https://github.com/firyomaefx/synthetic-indices.git
-cd synthetic-indices
-# see INTEGRATION.md for the MQL5 pack + Install-BREAK100.ps1
-```
-
-Attach **BREAK100** to Boom 100 Index M1. AutoTrading **OFF**. Real account is
-fine for ticks. `issued` stays `NO_TRADE`.
 
 ## Python checks
 
@@ -44,3 +69,24 @@ fine for ticks. `issued` stays `NO_TRADE`.
 python -m pytest -q
 python -m compileall -q src tests
 ```
+
+## Recent EA versions
+
+| Ver | Change |
+|---|---|
+| **1.94** | Telegram **M30 chart only** |
+| 1.93 | SL replies; same SL as tracker; honest pts; send-then-remember |
+| 1.92 | Impulse then small range then break |
+| 1.91 | Tight box (4–8 bars, 25% of 1 H4); no infinite rays |
+| 1.90 | Daily Signal 1,2,… reset 06:00 GMT |
+| 1.89 | TP1/2/3 reply on the original ENTRY |
+| 1.86 | HF bidirectional train/policy sync |
+| 1.80 | M30 OCO WATCH both stops |
+
+Full table: [docs/project-management/CHANGE_LOG.md](docs/project-management/CHANGE_LOG.md).
+
+## Release rule
+
+**Every EA or tools change updates this README** (version badge at the top + Recent versions row). Same commit as the code.
+
+Web Grok and laptop Grok do not share a disk — they combine through this GitHub remote. See [INTEGRATION.md](INTEGRATION.md).

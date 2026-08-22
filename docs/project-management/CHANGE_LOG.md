@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-22 | README.md brought to v1.94; release rule: every EA/tools change updates GitHub README in the same commit. | docs | Owner request |
 | 2026-08-22 | v1.94 Telegram hard-lock: send only if chart is M30 and InpBoxTF is M30. Other TFs log OFF. Live locked. | MQL5 Telegram | Owner request |
 | 2026-08-22 | v1.93 Telegram only from M30 chart; ENTRY/SL share g_levels; send-then-remember; reply-fail fallback; pts = price difference; faster WebRequest. Live locked. | MQL5 Telegram | Owner request |
 | 2026-08-22 | v1.92 Impulse then range then break: box is the small pause after a long M30 (≥1.5× box height, real body). Impulse not inside the rectangle. ML logs imp_dir/size. Live locked. | MQL5 Box/Train/Capture | Owner request |
