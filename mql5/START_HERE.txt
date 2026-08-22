@@ -1,6 +1,6 @@
-BREAK100 v1.98 — START HERE
+BREAK100 v1.99 — START HERE
 ===========================
-Compile 1.98. Attach M30 only. Fib SL/TP lines after fill. Telegram M30 only. Live locked.
+Compile 1.99. Attach M30 only. After stop fill: Fib SL/TP1/TP2/TP3 with prices. Telegram M30 only. Live locked.
 
 Seamless train data (PC + Hugging Face stay the same)
   1. Copy BREAK100_hf.txt.example -> Common\\Files\\BREAK100_hf.txt

@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-22 | v1.99 After BUY STOP / SELL STOP fill, chart draws a native MT5 Fibonacci object (dotted rays, price labels) for SL, ENTRY, TP1, TP2, TP3. Fill prices are latched so the lines survive box SCAN. Cleared on the next WATCH. Live locked. | MQL5 visual | Owner request |
 | 2026-08-22 | v1.98 After BUY/SELL fill, chart shows dotted Fib-style lines with prices for ENTRY, SL, TP1, TP2, TP3 until path ends. Live locked. | MQL5 visual | Owner request |
 | 2026-08-22 | v1.97 Journal arrows mint (BUY) / magenta (SELL), distinct from gold/red candles. Live locked. | MQL5 visual | Owner request |
 | 2026-08-22 | v1.96 Range-then-break is default (WATCH the tight box; long M30 close is the fill). Impulse-before is logged, not required (`InpImpulseK=0`). Unique M30 data: ~52% impulses had a range immediately before. Live locked. | MQL5 Box | Owner request |

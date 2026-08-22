@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.98"
-#property description "Fib-style SL/TP dotted lines with prices after fill. Live locked."
+#property version   "1.99"
+#property description "Native MT5 Fib SL/TP1/TP2/TP3 with prices after stop fill. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -78,6 +78,7 @@ input int            InpStatusHours    = 6;            // ML/RL status to Telegr
 #define LV_TP1_L   "B100_lv_tp1_l"
 #define LV_TP2_L   "B100_lv_tp2_l"
 #define LV_TP3_L   "B100_lv_tp3_l"
+#define LV_FIBO    "B100_fib"
 #define BOX_RECT   "B100_box"
 #define BOX_RES    "B100_box_res"
 #define BOX_SUP    "B100_box_sup"
@@ -112,11 +113,25 @@ struct B100Levels
    int               tp_hit;   // 0,1,2,3
   };
 
+struct B100Fib
+  {
+   bool              on;
+   int               dir;
+   datetime          t0;
+   datetime          t1;
+   double            entry;
+   double            sl;
+   double            tp1;
+   double            tp2;
+   double            tp3;
+  };
+
 B100Pipe        g_pipe;
 B100Mode        g_mode;
 B100ShadowBook  g_shadow;
 B100Decision    g_decision;
 B100Levels      g_levels;
+B100Fib         g_fib;
 B100Learner     g_learner;
 B100LearnPolicy g_policy;
 B100Box         g_box;
@@ -176,6 +191,8 @@ void B100ArmBoxOco(const double bid, const double ask);
 void B100CancelBoxOco(const string reason);
 void B100TelegramWatch(void);
 void B100TelegramFill(const int dir, const double px, const bool sibling_deleted);
+void B100FibLatch(const int dir, const double entry, const double sl, const double tp1, const double tp2, const double tp3);
+void B100FibClear(void);
 void B100TelegramCancel(const string reason);
 void B100TelegramClose(const string why, const int dir, const double entry, const double exit_px, const double sl, const double tp, const double pts);
 void B100TelegramTp(const int level, const double px);
@@ -206,6 +223,7 @@ int OnInit()
                 InpPersistTicks, InpLabelHorizon);
    B100ShadowInit(g_shadow);
    ZeroMemory(g_levels);
+   ZeroMemory(g_fib);
    B100LearnerInit(g_learner);
    B100BoxInit(g_box);
    B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxH4Frac, InpBoxWiden, InpImpulseK);
@@ -255,11 +273,6 @@ int OnInit()
 
    B100CreateLines();
    B100PaintHistBoxes();
-   B100LevelLine(LV_ENTRY, mid, clrSilver, STYLE_DOT, "ENTRY");
-   B100LevelLine(LV_SL,    mid, C'181,106,92', STYLE_SOLID, "SL");
-   B100LevelLine(LV_TP1,   mid, C'111,154,125', STYLE_DASH, "TP1");
-   B100LevelLine(LV_TP2,   mid, C'90,140,110', STYLE_DASH, "TP2");
-   B100LevelLine(LV_TP3,   mid, C'70,120,95', STYLE_DASH, "TP3");
    g_ready = true;
 
    Print("BREAK100 init  mode=", B100ModeName(g_mode.mode),
@@ -316,6 +329,7 @@ void OnDeinit(const int reason)
    ObjectDelete(0, LV_TP1_L);
    ObjectDelete(0, LV_TP2_L);
    ObjectDelete(0, LV_TP3_L);
+   ObjectDelete(0, LV_FIBO);
    ObjectDelete(0, BOX_RECT);
    ObjectDelete(0, BOX_RES);
    ObjectDelete(0, BOX_SUP);
@@ -482,11 +496,17 @@ void OnTick()
         {
          g_oco_fill_dir = 1;
          g_oco_fill_px  = g_shadow.entry;
+         B100FibLatch(1, g_shadow.entry, g_oco_sl_buy, g_oco_tp_buy,
+                      (g_levels.valid ? g_levels.tp2 : 0.0),
+                      (g_levels.valid ? g_levels.tp3 : 0.0));
         }
       else if(g_shadow.last_event == "FILL_SELL")
         {
          g_oco_fill_dir = -1;
          g_oco_fill_px  = g_shadow.entry;
+         B100FibLatch(-1, g_shadow.entry, g_oco_sl_sell, g_oco_tp_sell,
+                      (g_levels.valid ? g_levels.tp2 : 0.0),
+                      (g_levels.valid ? g_levels.tp3 : 0.0));
         }
       else if(StringFind(g_shadow.last_event, "CLOSE_") == 0)
          B100TelegramClose(g_shadow.last_event, g_oco_fill_dir, g_oco_fill_px,
@@ -526,8 +546,11 @@ void OnTick()
            {
             B100FillBoxLevels(learn_side, (learn_side > 0 ? g_box.buy_stop : g_box.sell_stop), ask, bid);
             if(InpTrainLog && g_levels.valid)
+              {
                B100TrainFill(g_episode, learn_side, labeled,
                              g_levels.entry, g_levels.sl, g_levels.tp1, g_levels.tp2, g_levels.tp3);
+               B100FibLatch(learn_side, g_levels.entry, g_levels.sl, g_levels.tp1, g_levels.tp2, g_levels.tp3);
+              }
            }
          else
            {
@@ -794,6 +817,7 @@ void B100TelegramFill(const int dir, const double px, const bool sibling_deleted
      }
    else
       B100FillSlTpFallback(dir, px, sl, tp1, tp2, tp3);
+   B100FibLatch(dir, px, sl, tp1, tp2, tp3);
    const string side = (dir > 0) ? "BUY" : "SELL";
    const string face = (dir > 0) ? "🟢" : "🔴";
    string msg = B100TgSigHead(false);
@@ -1150,6 +1174,7 @@ void B100ArmBoxOco(const double bid, const double ask)
       g_last_exec_bar = g_box.armed_bar;
      }
 
+   B100FibClear();
    B100TelegramWatch();
    Print("B100 OCO armed gate=", g_box.dir_gate,
          " BUY ", DoubleToString(buy_px, _Digits),
@@ -1372,7 +1397,7 @@ void B100ComputeSignal(const string labeled, const bool shadow_was_open, const b
    const bool box_mode = (InpStrategy == B100_STRAT_BOX_M30);
    bool blocked = false;
 
-   if(box_mode && !g_box.ready)
+   if(box_mode && !g_box.ready && !g_fib.on && !(g_episode.active && g_episode.tracking))
      {
       next = "WAIT";
       note = "M30 box warming — need prior closed bars";
@@ -1576,24 +1601,6 @@ void B100LevelLine(const string name, const double price, const color clr, const
    ObjectSetString(0, name, OBJPROP_TOOLTIP, caption + " " + DoubleToString(price, _Digits));
   }
 
-void B100LevelTag(const string name, const double price, const string text, const color clr)
-  {
-   const datetime t = iTime(_Symbol, PERIOD_CURRENT, 0);
-   const datetime tx = (t > 0) ? t + 2 * PeriodSeconds(PERIOD_CURRENT) : TimeCurrent();
-   if(ObjectFind(0, name) < 0)
-      ObjectCreate(0, name, OBJ_TEXT, 0, tx, price);
-   ObjectSetInteger(0, name, OBJPROP_TIME, 0, tx);
-   ObjectSetDouble(0, name, OBJPROP_PRICE, 0, price);
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
-   ObjectSetString(0, name, OBJPROP_FONT, "Arial");
-   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 8);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
-   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT);
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
-  }
-
 void B100HideLevels(void)
   {
    ObjectSetInteger(0, LV_ENTRY, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
@@ -1606,6 +1613,56 @@ void B100HideLevels(void)
    ObjectSetInteger(0, LV_TP1_L,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
    ObjectSetInteger(0, LV_TP2_L,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
    ObjectSetInteger(0, LV_TP3_L,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+  }
+
+void B100FibClear(void)
+  {
+   g_fib.on  = false;
+   g_fib.dir = 0;
+   B100HideLevels();
+  }
+
+void B100FibLatch(const int dir, const double entry, const double sl, const double tp1, const double tp2, const double tp3)
+  {
+   if(dir == 0 || entry <= 0.0 || sl <= 0.0)
+      return;
+   const bool fresh = (!g_fib.on || g_fib.dir != dir ||
+                       MathAbs(g_fib.entry - entry) > _Point ||
+                       MathAbs(g_fib.sl - sl) > _Point);
+   g_fib.on    = true;
+   g_fib.dir   = dir;
+   g_fib.entry = entry;
+   g_fib.sl    = sl;
+   g_fib.tp1   = tp1;
+   g_fib.tp2   = tp2;
+   g_fib.tp3   = tp3;
+   if(g_fib.t0 == 0 || fresh)
+     {
+      g_fib.t0 = (g_box.t_left > 0) ? g_box.t_left : iTime(_Symbol, PERIOD_M30, 1);
+      if(g_fib.t0 == 0)
+         g_fib.t0 = TimeCurrent();
+      g_fib.t1 = TimeCurrent();
+      if(g_fib.t1 <= g_fib.t0)
+         g_fib.t1 = g_fib.t0 + PeriodSeconds(PERIOD_M30);
+     }
+   if(fresh)
+      Print("B100 Fib  ", (dir > 0 ? "BUY" : "SELL"),
+            "  ENTRY ", DoubleToString(entry, _Digits),
+            "  SL ", DoubleToString(sl, _Digits),
+            "  TP1 ", DoubleToString(tp1, _Digits),
+            "  TP2 ", DoubleToString(tp2, _Digits),
+            "  TP3 ", DoubleToString(tp3, _Digits));
+  }
+
+void B100FibLevel(const int idx, const double ratio, const string tag, const double price, const color clr)
+  {
+   ObjectSetDouble(0, LV_FIBO, OBJPROP_LEVELVALUE, idx, ratio);
+   ObjectSetString(0, LV_FIBO, OBJPROP_LEVELTEXT, idx,
+                   tag + "  " + DoubleToString(price, _Digits));
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_LEVELCOLOR, idx, clr);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_LEVELSTYLE, idx, STYLE_DOT);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_LEVELWIDTH, idx, 1);
   }
 
 void B100PaintLevels()
@@ -1616,8 +1673,20 @@ void B100PaintLevels()
       return;
      }
    double en = 0, sl = 0, t1 = 0, t2 = 0, t3 = 0;
+   datetime ta = 0, tb = 0;
    bool path = false;
-   if(g_episode.tracking && g_episode.entry > 0.0)
+   if(g_fib.on && g_fib.entry > 0.0 && g_fib.sl > 0.0)
+     {
+      path = true;
+      en = g_fib.entry;
+      sl = g_fib.sl;
+      t1 = g_fib.tp1;
+      t2 = g_fib.tp2;
+      t3 = g_fib.tp3;
+      ta = g_fib.t0;
+      tb = g_fib.t1;
+     }
+   else if(g_episode.tracking && g_episode.entry > 0.0)
      {
       path = true;
       en = g_episode.entry;
@@ -1636,28 +1705,60 @@ void B100PaintLevels()
       t2 = g_levels.tp2;
       t3 = g_levels.tp3;
      }
-   if(path)
-     {
-      B100LevelLine(LV_ENTRY, en, clrSilver, STYLE_DOT, "ENTRY");
-      B100LevelLine(LV_SL,    sl, CLR_ARR_SELL, STYLE_DOT, "SL");
-      B100LevelLine(LV_TP1,   t1, CLR_ARR_BUY, STYLE_DOT, "TP1");
-      B100LevelLine(LV_TP2,   t2, C'40,180,140', STYLE_DOT, "TP2");
-      B100LevelLine(LV_TP3,   t3, C'30,140,110', STYLE_DOT, "TP3");
-      B100LevelTag(LV_ENTRY_L, en, "ENTRY  " + DoubleToString(en, _Digits), clrSilver);
-      B100LevelTag(LV_SL_L,    sl, "SL  " + DoubleToString(sl, _Digits), CLR_ARR_SELL);
-      B100LevelTag(LV_TP1_L,   t1, "TP1  " + DoubleToString(t1, _Digits), CLR_ARR_BUY);
-      B100LevelTag(LV_TP2_L,   t2, "TP2  " + DoubleToString(t2, _Digits), C'40,180,140');
-      B100LevelTag(LV_TP3_L,   t3, "TP3  " + DoubleToString(t3, _Digits), C'30,140,110');
-      return;
-     }
-   if(InpStrategy == B100_STRAT_BOX_M30 &&
-      g_box.ready && g_box.state == B100_BOX_ARMED &&
-      (g_signal == "WATCH" || g_signal == "WAIT"))
+   if(!path)
      {
       B100HideLevels();
       return;
      }
-   B100HideLevels();
+   const double span = en - sl;
+   if(MathAbs(span) < _Point)
+     {
+      B100HideLevels();
+      return;
+     }
+   if(ta == 0)
+      ta = iTime(_Symbol, PERIOD_CURRENT, 4);
+   if(ta == 0)
+      ta = TimeCurrent() - 4 * PeriodSeconds(PERIOD_CURRENT);
+   if(tb <= ta)
+      tb = ta + PeriodSeconds(PERIOD_CURRENT);
+
+   if(ObjectFind(0, LV_FIBO) < 0)
+      ObjectCreate(0, LV_FIBO, OBJ_FIBO, 0, ta, sl, tb, en);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_TIME, 0, ta);
+   ObjectSetDouble(0, LV_FIBO, OBJPROP_PRICE, 0, sl);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_TIME, 1, tb);
+   ObjectSetDouble(0, LV_FIBO, OBJPROP_PRICE, 1, en);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_COLOR, C'170,170,180');
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_STYLE, STYLE_DOT);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_WIDTH, 1);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_RAY_RIGHT, true);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_RAY_LEFT, false);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_BACK, false);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_FILL, false);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_FONTSIZE, 8);
+
+   int n = 2;
+   if(t1 > 0.0)
+      n++;
+   if(t2 > 0.0)
+      n++;
+   if(t3 > 0.0)
+      n++;
+   ObjectSetInteger(0, LV_FIBO, OBJPROP_LEVELS, n);
+   int i = 0;
+   B100FibLevel(i++, 0.0, "SL", sl, CLR_ARR_SELL);
+   B100FibLevel(i++, 1.0, "ENTRY", en, clrSilver);
+   if(t1 > 0.0)
+      B100FibLevel(i++, (t1 - sl) / span, "TP1", t1, CLR_ARR_BUY);
+   if(t2 > 0.0)
+      B100FibLevel(i++, (t2 - sl) / span, "TP2", t2, C'40,180,140');
+   if(t3 > 0.0)
+      B100FibLevel(i++, (t3 - sl) / span, "TP3", t3, C'30,140,110');
+   ChartRedraw(0);
   }
 
 void B100PaintHistBoxes()
