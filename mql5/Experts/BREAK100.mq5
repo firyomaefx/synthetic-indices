@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.95"
-#property description "Always-on tick/bar warehouse. Telegram M30 only. Live locked."
+#property version   "1.96"
+#property description "Range-then-break + optional impulse-then-range. M30 Telegram. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -24,7 +24,7 @@ input int            InpBoxMaxBars     = 8;            // Max M30 bars (one H4)
 input int            InpBoxAtrPeriod   = 14;           // unused (kept for old .set files)
 input double         InpBoxH4Frac      = 0.25;         // Box height ≤ this × last 1 H4 candle
 input double         InpBoxWiden       = 0.10;         // Older bar may poke at most this × height
-input double         InpImpulseK       = 1.50;         // Prior M30 must be ≥ this × box height (impulse)
+input double         InpImpulseK       = 0.0;          // 0 = do not require impulse (range-then-break). >0 = require long candle before box
 input double         InpBoxSlBuf       = 0.15;         // SL beyond opposite rail, in box heights
 input int            InpBoxTimeout     = 10;           // Armed closes without fill → cancel
 input bool           InpBoxNoFade      = true;         // Never fade the pause

@@ -1,7 +1,8 @@
 #ifndef BREAK100_BOX_MQH
 #define BREAK100_BOX_MQH
 
-// Impulse (long M30) then tight range, then break on M30 close. No fade. No ATR.
+// Tight M30 box. Default: range then break (long candle is the fill).
+// Optional: require impulse before the box. No fade. No ATR.
 
 enum ENUM_B100_STRAT
   {
@@ -66,6 +67,7 @@ struct B100Box
    double               imp_h;
    double               imp_vs_box;
    double               box_at;
+   string               phase;
   };
 
 void B100BoxInit(B100Box &b)
@@ -222,12 +224,15 @@ bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
      }
    if(n_bars < minb)
       return false;
-   int idir = 0;
-   double ih = 0, iv = 0, ba = 0;
-   if(!B100ImpulseBefore(tf, end_shift, n_bars, hi - lo, impulse_k, idir, ih, iv, ba))
-      return false;
    t_left = iTime(_Symbol, tf, end_shift + n_bars - 1);
    t_right = iTime(_Symbol, tf, end_shift);
+   if(impulse_k > 0.0)
+     {
+      int idir = 0;
+      double ih = 0, iv = 0, ba = 0;
+      if(!B100ImpulseBefore(tf, end_shift, n_bars, hi - lo, impulse_k, idir, ih, iv, ba))
+         return false;
+     }
    return true;
   }
 
@@ -397,7 +402,17 @@ string B100BoxOnTick(B100Box &b,
    b.dir_gate   = "BOTH";
    B100RangePattern(tf, 1, n, hi, lo, B100H4Span(),
                     b.touches_hi, b.touches_lo, b.close_loc, b.compress, b.h_vs_h4);
-   B100ImpulseBefore(tf, 1, n, hi - lo, impulse_k, b.imp_dir, b.imp_h, b.imp_vs_box, b.box_at);
+   if(B100ImpulseBefore(tf, 1, n, hi - lo, MathMax(impulse_k, 1.2),
+                        b.imp_dir, b.imp_h, b.imp_vs_box, b.box_at))
+      b.phase = "IMPULSE_THEN_RANGE";
+   else
+     {
+      b.imp_dir = 0;
+      b.imp_h = 0;
+      b.imp_vs_box = 0;
+      b.box_at = 0.5;
+      b.phase = "RANGE_THEN_BREAK";
+     }
    B100BoxPushHist(b, t0, t1, hi, lo);
    return "";
   }
@@ -436,9 +451,13 @@ string B100BoxWatchNote(const B100Box &b, const double mid)
       return "RL BUY-only  BUY STOP " + DoubleToString(b.buy_stop, _Digits);
    if(b.dir_gate == "SELL")
       return "RL SELL-only  SELL STOP " + DoubleToString(b.sell_stop, _Digits);
-   const string idir = (b.imp_dir > 0 ? "after UP move" : (b.imp_dir < 0 ? "after DN move" : ""));
+   string ph = b.phase;
+   if(ph == "IMPULSE_THEN_RANGE")
+      ph = (b.imp_dir > 0 ? "after UP impulse" : "after DN impulse");
+   else
+      ph = "range then break";
    return "RANGE " + IntegerToString(b.bars) + " bars  H " + DoubleToString(b.height, _Digits) +
-          "  " + idir +
+          "  " + ph +
           "  OCO BUY " + DoubleToString(b.buy_stop, _Digits) +
           "  SELL " + DoubleToString(b.sell_stop, _Digits);
   }

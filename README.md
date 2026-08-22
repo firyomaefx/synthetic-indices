@@ -2,16 +2,16 @@
 
 MQL5 Observe/Shadow EA for **BREAK100** (Boom-class synthetic) on **M30**.
 
-Current EA: **v1.95**. Live orders **source-locked**. **No profit claim.**
+Current EA: **v1.96**. Live orders **source-locked**. **No profit claim.**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled)`
 
 ## What it does
 
-1. Wait for a **long M30 candle** (impulse).
-2. Draw a **small range** after it (4–8 overlapping M30 bars, height ≤ 25% of last 1 H4). The impulse is **not** inside the box.
-3. **WATCH** both sides. **Fill** only if M30 **closes** outside the box. First fill cancels the other (OCO).
-4. SL beyond the opposite rail, TP in **box heights**. ML/RL (UCB) sizes SL/TP from unique quality episodes; direction gate SKIP / BUY-only / SELL-only / OCO.
+1. Find a **tight M30 range** (4–8 bars, height ≤ 25% of last 1 H4). Warehouse shows this range often sits **before** a long candle.
+2. **WATCH** both sides. **Fill** when M30 **closes** outside — that close *is* the big move. First fill cancels the other (OCO).
+3. If a long candle already printed before the range (`InpImpulseK` > 0), tag `IMPULSE_THEN_RANGE`; default `InpImpulseK=0` is **range-then-break**.
+4. SL beyond the opposite rail, TP in **box heights**. ML logs `phase`.
 
 Telegram (M30 chart only): daily **Signal 1, 2, …** from **06:00 GMT**; ENTRY/TP/SL **reply** on that signal. SL skipped if TP1 already posted.
 
@@ -56,7 +56,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v1.95) |
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v1.96) |
 | `mql5/Include/Break100/` | Box, Capture, Train, Telegram, DemoExec, Learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with Hub |
@@ -74,6 +74,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **1.96** | Dual phase: default **range-then-break**; impulse-then-range tagged when a long candle sits before the box |
 | **1.95** | Warehouse always on: ticks + M1–H4 + account every tick and every 60s timer, even if health FAULT |
 | **1.94** | Telegram **M30 chart only** |
 | 1.93 | SL replies; same SL as tracker; honest pts; send-then-remember |

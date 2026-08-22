@@ -390,7 +390,7 @@ void B100CaptureSetup(B100Capture &c, const B100Box &b, const double bid, const 
              m30o, m30h, m30l, m30c,
              h4o, h4h, h4l, h4c,
              b.touches_hi, b.touches_lo, b.close_loc, b.compress, b.h_vs_h4,
-             b.imp_dir, b.imp_h, b.imp_vs_box, b.box_at);
+             b.imp_dir, b.imp_h, b.imp_vs_box, b.box_at, b.phase);
    FileClose(fh);
    c.setup_n++;
   }
