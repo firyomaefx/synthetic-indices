@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.97"
-#property description "Mint/magenta journal arrows vs candle colors. M30 Telegram. Live locked."
+#property version   "1.98"
+#property description "Fib-style SL/TP dotted lines with prices after fill. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -73,6 +73,11 @@ input int            InpStatusHours    = 6;            // ML/RL status to Telegr
 #define LV_TP1     "B100_lv_tp1"
 #define LV_TP2     "B100_lv_tp2"
 #define LV_TP3     "B100_lv_tp3"
+#define LV_ENTRY_L "B100_lv_entry_l"
+#define LV_SL_L    "B100_lv_sl_l"
+#define LV_TP1_L   "B100_lv_tp1_l"
+#define LV_TP2_L   "B100_lv_tp2_l"
+#define LV_TP3_L   "B100_lv_tp3_l"
 #define BOX_RECT   "B100_box"
 #define BOX_RES    "B100_box_res"
 #define BOX_SUP    "B100_box_sup"
@@ -306,6 +311,11 @@ void OnDeinit(const int reason)
    ObjectDelete(0, LV_TP1);
    ObjectDelete(0, LV_TP2);
    ObjectDelete(0, LV_TP3);
+   ObjectDelete(0, LV_ENTRY_L);
+   ObjectDelete(0, LV_SL_L);
+   ObjectDelete(0, LV_TP1_L);
+   ObjectDelete(0, LV_TP2_L);
+   ObjectDelete(0, LV_TP3_L);
    ObjectDelete(0, BOX_RECT);
    ObjectDelete(0, BOX_RES);
    ObjectDelete(0, BOX_SUP);
@@ -1562,40 +1572,92 @@ void B100LevelLine(const string name, const double price, const color clr, const
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, g_levels.valid && InpDrawLevels ? OBJ_ALL_PERIODS : OBJ_NO_PERIODS);
+   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
    ObjectSetString(0, name, OBJPROP_TOOLTIP, caption + " " + DoubleToString(price, _Digits));
+  }
+
+void B100LevelTag(const string name, const double price, const string text, const color clr)
+  {
+   const datetime t = iTime(_Symbol, PERIOD_CURRENT, 0);
+   const datetime tx = (t > 0) ? t + 2 * PeriodSeconds(PERIOD_CURRENT) : TimeCurrent();
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_TEXT, 0, tx, price);
+   ObjectSetInteger(0, name, OBJPROP_TIME, 0, tx);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, 0, price);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 8);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+  }
+
+void B100HideLevels(void)
+  {
+   ObjectSetInteger(0, LV_ENTRY, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, LV_SL,    OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, LV_TP1,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, LV_TP2,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, LV_TP3,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, LV_ENTRY_L, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, LV_SL_L,    OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, LV_TP1_L,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, LV_TP2_L,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, LV_TP3_L,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
   }
 
 void B100PaintLevels()
   {
-   if(InpDrawLevels && InpStrategy == B100_STRAT_BOX_M30 &&
+   if(!InpDrawLevels)
+     {
+      B100HideLevels();
+      return;
+     }
+   double en = 0, sl = 0, t1 = 0, t2 = 0, t3 = 0;
+   bool path = false;
+   if(g_episode.tracking && g_episode.entry > 0.0)
+     {
+      path = true;
+      en = g_episode.entry;
+      sl = g_episode.sl;
+      t1 = g_episode.tp1;
+      t2 = g_episode.tp2;
+      t3 = g_episode.tp3;
+     }
+   else if(g_levels.valid &&
+           (g_signal == "BUY" || g_signal == "SELL" || g_signal == "HOLD"))
+     {
+      path = true;
+      en = g_levels.entry;
+      sl = g_levels.sl;
+      t1 = g_levels.tp1;
+      t2 = g_levels.tp2;
+      t3 = g_levels.tp3;
+     }
+   if(path)
+     {
+      B100LevelLine(LV_ENTRY, en, clrSilver, STYLE_DOT, "ENTRY");
+      B100LevelLine(LV_SL,    sl, CLR_ARR_SELL, STYLE_DOT, "SL");
+      B100LevelLine(LV_TP1,   t1, CLR_ARR_BUY, STYLE_DOT, "TP1");
+      B100LevelLine(LV_TP2,   t2, C'40,180,140', STYLE_DOT, "TP2");
+      B100LevelLine(LV_TP3,   t3, C'30,140,110', STYLE_DOT, "TP3");
+      B100LevelTag(LV_ENTRY_L, en, "ENTRY  " + DoubleToString(en, _Digits), clrSilver);
+      B100LevelTag(LV_SL_L,    sl, "SL  " + DoubleToString(sl, _Digits), CLR_ARR_SELL);
+      B100LevelTag(LV_TP1_L,   t1, "TP1  " + DoubleToString(t1, _Digits), CLR_ARR_BUY);
+      B100LevelTag(LV_TP2_L,   t2, "TP2  " + DoubleToString(t2, _Digits), C'40,180,140');
+      B100LevelTag(LV_TP3_L,   t3, "TP3  " + DoubleToString(t3, _Digits), C'30,140,110');
+      return;
+     }
+   if(InpStrategy == B100_STRAT_BOX_M30 &&
       g_box.ready && g_box.state == B100_BOX_ARMED &&
       (g_signal == "WATCH" || g_signal == "WAIT"))
      {
-      B100LevelLine(LV_ENTRY, 0.5 * (g_box.high + g_box.low), CLR_EQ, STYLE_DOT, "BOX MID");
-      B100LevelLine(LV_SL,    g_box.sell_stop, CLR_SELL, STYLE_SOLID, "SELL STOP");
-      B100LevelLine(LV_TP1,   g_box.buy_stop,  CLR_BUY,  STYLE_SOLID, "BUY STOP");
-      ObjectSetInteger(0, LV_TP2, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, LV_TP3, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      B100HideLevels();
       return;
      }
-   const bool show = InpDrawLevels && g_levels.valid &&
-                     (g_signal == "BUY" || g_signal == "SELL" || g_signal == "HOLD" ||
-                      g_signal == "STAND_DOWN" || g_signal == "EXIT");
-   if(!show)
-     {
-      ObjectSetInteger(0, LV_ENTRY, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, LV_SL,    OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, LV_TP1,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, LV_TP2,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, LV_TP3,   OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      return;
-     }
-   B100LevelLine(LV_ENTRY, g_levels.entry, clrSilver,            STYLE_DOT,   "ENTRY");
-   B100LevelLine(LV_SL,    g_levels.sl,    C'181,106,92',        STYLE_SOLID, "SL");
-   B100LevelLine(LV_TP1,   g_levels.tp1,   C'111,154,125',       STYLE_DASH,  "TP1");
-   B100LevelLine(LV_TP2,   g_levels.tp2,   C'90,140,110',        STYLE_DASH,  "TP2");
-   B100LevelLine(LV_TP3,   g_levels.tp3,   C'70,120,95',         STYLE_DASH,  "TP3");
+   B100HideLevels();
   }
 
 void B100PaintHistBoxes()

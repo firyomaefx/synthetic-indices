@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-22 | v1.98 After BUY/SELL fill, chart shows dotted Fib-style lines with prices for ENTRY, SL, TP1, TP2, TP3 until path ends. Live locked. | MQL5 visual | Owner request |
 | 2026-08-22 | v1.97 Journal arrows mint (BUY) / magenta (SELL), distinct from gold/red candles. Live locked. | MQL5 visual | Owner request |
 | 2026-08-22 | v1.96 Range-then-break is default (WATCH the tight box; long M30 close is the fill). Impulse-before is logged, not required (`InpImpulseK=0`). Unique M30 data: ~52% impulses had a range immediately before. Live locked. | MQL5 Box | Owner request |
 | 2026-08-22 | v1.95 Always-on capture: ticks/bars/account on every tick + OnTimer 60s heartbeat; file reopen wrap-safe; warehouse forced on while EA attached. Live locked. | MQL5 Capture | Owner request |

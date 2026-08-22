@@ -2,7 +2,7 @@
 
 MQL5 Observe/Shadow EA for **BREAK100** (Boom-class synthetic) on **M30**.
 
-Current EA: **v1.97**. Live orders **source-locked**. **No profit claim.**
+Current EA: **v1.98**. Live orders **source-locked**. **No profit claim.**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled)`
 
@@ -56,7 +56,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v1.97) |
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v1.98) |
 | `mql5/Include/Break100/` | Box, Capture, Train, Telegram, DemoExec, Learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with Hub |
@@ -74,6 +74,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **1.98** | After fill: dotted ENTRY/SL/TP1/TP2/TP3 lines with price tags (Fib-style) |
 | **1.97** | Journal BUY mint / SELL magenta so arrows do not match candle colors |
 | **1.96** | Dual phase: default **range-then-break**; impulse-then-range tagged when a long candle sits before the box |
 | **1.95** | Warehouse always on: ticks + M1–H4 + account every tick and every 60s timer, even if health FAULT |
