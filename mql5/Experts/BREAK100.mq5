@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.96"
-#property description "Range-then-break + optional impulse-then-range. M30 Telegram. Live locked."
+#property version   "1.97"
+#property description "Mint/magenta journal arrows vs candle colors. M30 Telegram. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -91,6 +91,8 @@ input int            InpStatusHours    = 6;            // ML/RL status to Telegr
 #define CLR_EQ       C'120,118,108'
 #define CLR_BUY      C'46,180,90'
 #define CLR_SELL     C'214,64,64'
+#define CLR_ARR_BUY  C'80,255,180'
+#define CLR_ARR_SELL C'255,80,220'
 
 struct B100Levels
   {
@@ -1808,7 +1810,7 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when)
    const string id = IntegerToString((int)(when > 0 ? when : (g_box.armed_bar > 0 ? g_box.armed_bar : t)));
    const string arr = "B100_jn_arr_" + id;
    const string ln  = "B100_jn_ln_" + id;
-   const color clr = (dir > 0) ? CLR_BUY : CLR_SELL;
+   const color clr = (dir > 0) ? CLR_ARR_BUY : CLR_ARR_SELL;
    const ENUM_OBJECT kind = (dir > 0) ? OBJ_ARROW_BUY : OBJ_ARROW_SELL;
    const int w = B100JournalWidth();
 

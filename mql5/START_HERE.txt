@@ -1,6 +1,6 @@
-BREAK100 v1.96 — START HERE
+BREAK100 v1.97 — START HERE
 ===========================
-Compile 1.96. Attach M30 only. Range-then-break default. Telegram M30 only. Capture always on. Live locked.
+Compile 1.97. Attach M30 only. Mint/magenta arrows. Telegram M30 only. Capture always on. Live locked.
 
 Seamless train data (PC + Hugging Face stay the same)
   1. Copy BREAK100_hf.txt.example -> Common\\Files\\BREAK100_hf.txt
