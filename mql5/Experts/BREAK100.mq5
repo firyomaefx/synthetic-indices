@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.92"
-#property description "Impulse then range then break. M30 close OCO. Live locked."
+#property version   "1.93"
+#property description "M30-only Telegram threads; SL replies; honest pts. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -208,7 +208,8 @@ int OnInit()
      {
       B100TelegramLoad();
       B100TgThreadLoad();
-      B100TelegramSelfTest();
+      if(B100TgChart())
+         B100TelegramSelfTest();
      }
    B100LearnerLoad(g_learner);
    if(B100PolicyLoad(g_policy))
@@ -587,12 +588,9 @@ void OnTick()
 
 int B100Pts(const double a, const double b)
   {
-   double pt = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-   if(pt <= 0.0)
-      pt = _Point;
-   if(pt <= 0.0 || a <= 0.0 || b <= 0.0)
+   if(a <= 0.0 || b <= 0.0)
       return 0;
-   return (int)MathRound(MathAbs(a - b) / pt);
+   return (int)MathRound(MathAbs(a - b));
   }
 
 string B100Px(const double x)
@@ -642,9 +640,14 @@ void B100FillSlTpFallback(const int dir, const double px, double &sl, double &tp
      }
   }
 
+bool B100TgChart(void)
+  {
+   return (Period() == PERIOD_M30);
+  }
+
 void B100Tg(const string text)
   {
-   if(!InpTelegram)
+   if(!InpTelegram || !B100TgChart())
       return;
    B100TelegramSend(text);
   }
@@ -733,7 +736,7 @@ void B100TelegramWatch(void)
       msg += "First fill cancels the other.";
    else
       msg += "RL one-side stop.";
-   if(!InpTelegram)
+   if(!InpTelegram || !B100TgChart())
       return;
    const long id = B100TelegramOnceReply(key, msg, 0);
    if(id > 0)
@@ -764,7 +767,15 @@ void B100TelegramFill(const int dir, const double px, const bool sibling_deleted
         }
      }
    double sl = 0, tp1 = 0, tp2 = 0, tp3 = 0;
-   B100FillSlTpFallback(dir, px, sl, tp1, tp2, tp3);
+   if(g_levels.valid && g_levels.dir == dir)
+     {
+      sl  = g_levels.sl;
+      tp1 = g_levels.tp1;
+      tp2 = g_levels.tp2;
+      tp3 = g_levels.tp3;
+     }
+   else
+      B100FillSlTpFallback(dir, px, sl, tp1, tp2, tp3);
    const string side = (dir > 0) ? "BUY" : "SELL";
    const string face = (dir > 0) ? "🟢" : "🔴";
    string msg = B100TgSigHead(false);
@@ -781,13 +792,13 @@ void B100TelegramFill(const int dir, const double px, const bool sibling_deleted
       msg += "\n🎯 TP3  " + B100Px(tp3);
    if(sibling_deleted)
       msg += (dir > 0 ? "\nSELL STOP cancelled" : "\nBUY STOP cancelled");
-   if(!InpTelegram)
+   g_tg_tp_announced = 0;
+   if(!InpTelegram || !B100TgChart())
       return;
    const long id = B100TelegramOnceReply(key, msg, g_tg_watch_id);
    if(id > 0)
      {
       g_tg_entry_id = id;
-      g_tg_tp_announced = 0;
       g_tg_thread_bar = g_box.armed_bar;
       B100TgThreadSave();
      }
@@ -800,7 +811,7 @@ void B100TelegramCancel(const string reason)
    msg += "⚪ BREAK100  CANCEL\n";
    msg += _Symbol + "  M30\n";
    msg += reason;
-   if(!InpTelegram)
+   if(!InpTelegram || !B100TgChart())
       return;
    B100TelegramOnceReply(key, msg, (g_tg_watch_id > 0 ? g_tg_watch_id : 0));
   }
@@ -817,7 +828,7 @@ void B100TelegramTp(const int level, const double px)
    msg += _Symbol + "  @ " + B100Px(px);
    if(g_episode.entry > 0.0)
       msg += "\nfrom ENTRY " + B100Px(g_episode.entry);
-   if(!InpTelegram)
+   if(!InpTelegram || !B100TgChart())
       return;
    if(B100TelegramOnceReply(key, msg, B100TgParent()) > 0 || B100TgSeen(key))
      {
@@ -872,7 +883,7 @@ void B100TelegramClose(const string why, const int dir, const double entry, cons
       msg += "Result  " + IntegerToString(ip) + " pts";
    else
       msg += "Result  flat";
-   if(!InpTelegram)
+   if(!InpTelegram || !B100TgChart())
       return;
    if((tag == "TP1 HIT" || tag == "TP2 HIT" || tag == "TP3 HIT" || tag == "TP HIT") && g_tg_tp_announced >= 1)
       return;
@@ -974,7 +985,7 @@ void B100TelegramSelfTest(void)
 
 void B100MaybeStatus(void)
   {
-   if(!InpTelegram || InpStatusHours <= 0 || !g_tg_ok)
+   if(!InpTelegram || !B100TgChart() || InpStatusHours <= 0 || !g_tg_ok)
       return;
    const datetime now = TimeGMT();
    const datetime last = B100StatusReadGmt();

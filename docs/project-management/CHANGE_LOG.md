@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-22 | v1.93 Telegram only from M30 chart; ENTRY/SL share g_levels; send-then-remember; reply-fail fallback; pts = price difference; faster WebRequest. Live locked. | MQL5 Telegram | Owner request |
 | 2026-08-22 | v1.92 Impulse then range then break: box is the small pause after a long M30 (≥1.5× box height, real body). Impulse not inside the rectangle. ML logs imp_dir/size. Live locked. | MQL5 Box/Train/Capture | Owner request |
 | 2026-08-22 | v1.91 Tight box: seed last 4 M30, add older only if they stay in-zone; height ≤ 25% of last 1 H4; max 8 bars; no infinite rays. Live locked. | MQL5 Box + paint | Owner request |
 | 2026-08-22 | v1.90 Telegram daily Signal 1,2,… from 06:00 GMT; resets next 06:00. Same number on ENTRY/TP/SL replies. Live locked. | MQL5 Telegram | Owner request |

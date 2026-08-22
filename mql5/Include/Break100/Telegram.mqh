@@ -92,7 +92,7 @@ long B100TelegramSendReply(string text, const long reply_to)
       ArrayResize(data, n - 1);
    string url = "https://api.telegram.org/bot" + g_tg_token + "/sendMessage";
    ResetLastError();
-   const int code = WebRequest("POST", url, headers, 4000, data, result, result_headers);
+   const int code = WebRequest("POST", url, headers, 1500, data, result, result_headers);
    if(code != 200)
      {
       Print("B100 Telegram HTTP ", code, " err=", GetLastError());
@@ -234,8 +234,12 @@ long B100TelegramOnceReply(const string key, const string text, const long reply
       return 0;
    if(B100TgSeen(key))
       return 0;
-   B100TgRemember(key);
-   return B100TelegramSendReply(text, reply_to);
+   long id = B100TelegramSendReply(text, reply_to);
+   if(id <= 0 && reply_to > 0)
+      id = B100TelegramSendReply(text, 0);
+   if(id > 0)
+      B100TgRemember(key);
+   return id;
   }
 
 #endif
