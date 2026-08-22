@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "1.93"
-#property description "M30-only Telegram threads; SL replies; honest pts. Live locked."
+#property version   "1.94"
+#property description "Telegram alerts M30 chart only. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -59,7 +59,7 @@ input bool           InpDrawArrows     = true;         // Arrows on buy/sell/exi
 input bool           InpDrawLevels     = true;         // Draw entry/SL/TP lines
 input bool           InpAlerts         = true;         // Popup on BUY/SELL/EXIT
 input bool           InpCapture        = true;         // Ticks + M1-H4 + ARM setup before breakout
-input bool           InpTelegram       = true;         // Channel alerts: WATCH/FILL/CANCEL/CLOSE
+input bool           InpTelegram       = true;         // Telegram: M30 chart only (other TFs silent)
 input int            InpStatusHours    = 6;            // ML/RL status to Telegram (0=off)
 
 #define IND_SHORT  "BREAK100 Channel"
@@ -209,7 +209,13 @@ int OnInit()
       B100TelegramLoad();
       B100TgThreadLoad();
       if(B100TgChart())
+        {
+         Print("B100 Telegram ON  chart=M30  boxTF=M30");
          B100TelegramSelfTest();
+        }
+      else
+         Print("B100 Telegram OFF  chart=", EnumToString(Period()),
+               "  boxTF=", EnumToString(InpBoxTF), "  — alerts only on M30");
      }
    B100LearnerLoad(g_learner);
    if(B100PolicyLoad(g_policy))
@@ -642,7 +648,7 @@ void B100FillSlTpFallback(const int dir, const double px, double &sl, double &tp
 
 bool B100TgChart(void)
   {
-   return (Period() == PERIOD_M30);
+   return (Period() == PERIOD_M30 && InpBoxTF == PERIOD_M30);
   }
 
 void B100Tg(const string text)
@@ -961,14 +967,14 @@ void B100TelegramStatus(void)
 
 void B100TelegramSelfTest(void)
   {
-   if(!InpTelegram)
+   if(!InpTelegram || !B100TgChart())
       return;
    if(!g_tg_ok)
      {
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v1.86  Telegram OK\n";
+   string msg = "🧪 BREAK100  v1.94  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
