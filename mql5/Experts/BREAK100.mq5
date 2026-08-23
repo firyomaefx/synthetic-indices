@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.14"
-#property description "WATCH arrows on armed box. Fill arrow on break. HUD stacked. Live locked."
+#property version   "2.15"
+#property description "Train unique-file fix. Outcome dedupe. WATCH arrows. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -1032,7 +1032,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.14  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.15  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
