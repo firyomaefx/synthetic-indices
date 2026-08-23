@@ -216,9 +216,12 @@ def sync_one(train_path: Path, token: str, dataset: str) -> str:
         hub_upload(dataset, train_path, token)
 
     uniq = unique_quality(merged)
-    uniq_path = train_path.with_name(train_path.name.replace("BREAK100_train_", "BREAK100_train_unique_"))
-    if uniq_path == train_path:
-        uniq_path = train_path.with_name("BREAK100_train_unique_" + train_path.name)
+    # Always BREAK100_train_unique_<symbol>.csv — never unique_unique_...
+    stem = train_path.name
+    if stem.startswith("BREAK100_train_") and "unique" not in stem:
+        uniq_path = train_path.with_name("BREAK100_train_unique_" + stem[len("BREAK100_train_") :])
+    else:
+        uniq_path = train_path.with_name("BREAK100_train_unique_BREAK100.csv")
     if uniq:
         write_records(uniq_path, fields, uniq)
         logs.append(f"unique quality=1 rows {len(uniq)}")
@@ -282,14 +285,21 @@ def run_once():
     token, dataset = read_cfg(root)
     print(f"Common {root}")
     print(f"dataset {dataset or '(none — local only)'}")
-    trains = sorted(root.glob("BREAK100_train_*.csv"))
+    trains = [p for p in sorted(root.glob("BREAK100_train_*.csv")) if "unique" not in p.name]
     if not trains:
-        trains = sorted(Path.cwd().glob("BREAK100_train_*.csv"))
+        trains = [p for p in sorted(Path.cwd().glob("BREAK100_train_*.csv")) if "unique" not in p.name]
     if not trains:
         print("No BREAK100_train_*.csv yet. Leave the EA on M30.")
     else:
         for p in trains:
             print(sync_one(p, token, dataset))
+    # Drop accidental unique_unique_... clones from older syncs.
+    for junk in list(root.glob("BREAK100_train_unique_unique*.csv")):
+        try:
+            junk.unlink()
+            print(f"removed {junk.name}")
+        except OSError:
+            pass
     if dataset:
         for p in sorted(root.glob("BREAK100_human_box_*.csv")):
             hub_upload(dataset, p, token)
