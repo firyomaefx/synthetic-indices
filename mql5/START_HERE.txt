@@ -1,8 +1,9 @@
-BREAK100 v2.13 — START HERE
+BREAK100 v2.14 — START HERE
 ===========================
 
 What this is
   M30 box breakout on BREAK100. Watch both stops. First fill cancels the other.
+  Armed box = WATCH (small arrows on both stops, not a fill). Mint/magenta arrow + Alert only after M30 close outside.
   After fill: dotted SL / ENTRY / TP1 / TP2 / TP3 with the price on each line.
   Rays hide when TP3 / SL / time-exit hits (not left up as a fake live setup).
   Telegram from the M30 chart only. Live orders locked. Not a profit claim.
