@@ -103,6 +103,7 @@ This is **not** Boom tick data. It is the BREAK100 **M30 box** backup for Tengko
 | `BREAK100_train_unique_BREAK100.csv` | One row per `episode_id`, `quality=1` only |
 | `BREAK100_policy_BREAK100.csv` | One-row policy the MT5 EA loads (SL/TP in box heights) |
 | `BREAK100_outcome_BREAK100.csv` | Fill labels (UP/DOWN/CENSOR) for arrows/journal |
+| `BREAK100_human_box_BREAK100.csv` | Your MT5 rectangles (pause before the big move) |
 
 Not stored: ticks, Telegram/HF tokens, account login, live orders.
 
@@ -286,9 +287,12 @@ def run_once():
         trains = sorted(Path.cwd().glob("BREAK100_train_*.csv"))
     if not trains:
         print("No BREAK100_train_*.csv yet. Leave the EA on M30.")
-        return 0
-    for p in trains:
-        print(sync_one(p, token, dataset))
+    else:
+        for p in trains:
+            print(sync_one(p, token, dataset))
+    if dataset:
+        for p in sorted(root.glob("BREAK100_human_box_*.csv")):
+            hub_upload(dataset, p, token)
     (root / STATE_NAME).write_text(str(int(time.time())), encoding="utf-8")
     return 0
 

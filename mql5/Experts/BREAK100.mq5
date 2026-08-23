@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.06"
-#property description "Half-size BUY/SELL arrows on M30. OCO both sides. Live locked."
+#property version   "2.07"
+#property description "Reads your MT5 rectangles as human box labels. OCO both. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -61,6 +61,7 @@ input bool           InpAlerts         = true;         // Popup on BUY/SELL/EXIT
 input bool           InpCapture        = true;         // Always-on ticks + M1-H4 + account (forced while EA attached)
 input bool           InpTelegram       = true;         // Telegram: M30 chart only (other TFs silent)
 input int            InpStatusHours    = 6;            // ML/RL status to Telegram (0=off)
+input bool           InpHarvestRects   = true;         // Save your drawn rectangles as human boxes
 
 #define IND_SHORT  "BREAK100 Channel"
 #define LINE_MID   "B100_centre"
@@ -172,6 +173,7 @@ datetime        g_tg_thread_bar  = 0;
 bool            g_skin_on    = false;
 color           g_old_bg, g_old_fg, g_old_grid, g_old_up, g_old_dn, g_old_bull, g_old_bear, g_old_ask, g_old_bid, g_old_vol;
 bool            g_old_show_grid, g_old_show_vol, g_old_show_ohlc, g_old_show_ask;
+int             g_human_n    = 0;
 
 void B100PaintBox();
 void B100PaintHud();
@@ -181,6 +183,7 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when = 0);
 void B100ReplayJournalMarks();
 void B100RescaleJournalMarks();
 int  B100JournalWidth();
+void B100HarvestHumanBoxes();
 int  B100Pts(const double a, const double b);
 string B100Px(const double x);
 void B100FillSlTpFallback(const int dir, const double px, double &sl, double &tp1, double &tp2, double &tp3);
@@ -292,6 +295,9 @@ int OnInit()
       B100RescaleJournalMarks();
      }
    B100PaintPanel();
+   ChartSetInteger(0, CHART_EVENT_OBJECT_CREATE, true);
+   ChartSetInteger(0, CHART_EVENT_OBJECT_DELETE, true);
+   B100HarvestHumanBoxes();
    EventSetTimer(60);
    B100MaybeStatus();
    return INIT_SUCCEEDED;
@@ -300,6 +306,7 @@ int OnInit()
 void OnTimer()
   {
    B100CaptureHeartbeat(g_capture);
+   B100HarvestHumanBoxes();
    B100MaybeStatus();
   }
 
@@ -966,6 +973,8 @@ void B100TelegramStatus(void)
    msg += "  ❌" + IntegerToString(n_sl);
    msg += "  ✅TP3 " + IntegerToString(n_tp3) + "\n";
    msg += "🧠 policy n=" + IntegerToString(g_policy.n) + "  OCO both\n";
+   if(g_human_n > 0)
+      msg += "📐 human boxes " + IntegerToString(g_human_n) + "\n";
 
    if(g_policy.sl_r > 0.0)
       msg += "🎯 " + DoubleToString(g_policy.sl_r, 1) + "R → " +
@@ -1010,7 +1019,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.06  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.07  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -2050,6 +2059,100 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
   {
    if(id == CHARTEVENT_CHART_CHANGE)
       B100RescaleJournalMarks();
+   if(id == CHARTEVENT_OBJECT_CREATE || id == CHARTEVENT_OBJECT_CHANGE ||
+      id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_DELETE ||
+      id == CHARTEVENT_OBJECT_ENDEDIT)
+      B100HarvestHumanBoxes();
+  }
+
+bool B100IsEaRect(const string name)
+  {
+   if(StringFind(name, "B100_") == 0)
+      return true;
+   if(StringFind(name, "B100") == 0 && StringFind(name, "B100H") != 0)
+      return true;
+   return false;
+  }
+
+void B100HarvestHumanBoxes()
+  {
+   if(!InpHarvestRects)
+      return;
+   string sym = _Symbol;
+   StringReplace(sym, " ", "_");
+   const int fh = FileOpen("BREAK100_human_box_" + sym + ".csv",
+                           FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON, ',');
+   if(fh == INVALID_HANDLE)
+      return;
+   FileWrite(fh, "name", "t_left", "t_right", "high", "low", "bars", "height", "h_vs_h4", "overlap_ea");
+   int kept = 0;
+   const int n = ObjectsTotal(0, 0, OBJ_RECTANGLE);
+   for(int i = 0; i < n; i++)
+     {
+      const string name = ObjectName(0, i, 0, OBJ_RECTANGLE);
+      if(name == "" || B100IsEaRect(name))
+         continue;
+      datetime t0 = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME, 0);
+      datetime t1 = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME, 1);
+      double p0 = ObjectGetDouble(0, name, OBJPROP_PRICE, 0);
+      double p1 = ObjectGetDouble(0, name, OBJPROP_PRICE, 1);
+      if(t0 == 0 || t1 == 0)
+         continue;
+      if(t1 < t0)
+        {
+         datetime tmp = t0;
+         t0 = t1;
+         t1 = tmp;
+        }
+      const double hi = MathMax(p0, p1);
+      const double lo = MathMin(p0, p1);
+      const double height = hi - lo;
+      if(height <= _Point)
+         continue;
+      int shL = iBarShift(_Symbol, PERIOD_M30, t0, true);
+      int shR = iBarShift(_Symbol, PERIOD_M30, t1, true);
+      int nb = 0;
+      if(shL >= 0 && shR >= 0)
+         nb = MathAbs(shL - shR) + 1;
+      double h4span = 0.0;
+      MqlRates h4[];
+      if(CopyRates(_Symbol, PERIOD_H4, t1, 1, h4) == 1)
+         h4span = h4[0].high - h4[0].low;
+      double hvh = (h4span > 0.0) ? height / h4span : 0.0;
+      double ov = 0.0;
+      if(g_box.t_left > 0 && g_box.t_right > 0 && g_box.high > g_box.low)
+        {
+         datetime ta = (t0 > g_box.t_left) ? t0 : g_box.t_left;
+         datetime tb = (t1 < g_box.t_right) ? t1 : g_box.t_right;
+         datetime tmin = (t0 < g_box.t_left) ? t0 : g_box.t_left;
+         datetime tmax = (t1 > g_box.t_right) ? t1 : g_box.t_right;
+         const double dt = (tb > ta) ? (double)(tb - ta) : 0.0;
+         const double du = (tmax > tmin) ? (double)(tmax - tmin) : 0.0;
+         const double po = MathMax(0.0, MathMin(hi, g_box.high) - MathMax(lo, g_box.low));
+         const double pu = MathMax(hi, g_box.high) - MathMin(lo, g_box.low);
+         if(du > 0.0 && pu > 0.0)
+            ov = (dt / du) * (po / pu);
+        }
+      FileWrite(fh, name,
+                TimeToString(t0, TIME_DATE | TIME_MINUTES),
+                TimeToString(t1, TIME_DATE | TIME_MINUTES),
+                DoubleToString(hi, _Digits),
+                DoubleToString(lo, _Digits),
+                nb,
+                DoubleToString(height, _Digits),
+                DoubleToString(hvh, 3),
+                DoubleToString(ov, 3));
+      kept++;
+     }
+   FileClose(fh);
+   if(kept != g_human_n)
+     {
+      g_human_n = kept;
+      Print("B100 human boxes saved n=", kept,
+            "  file=BREAK100_human_box_", sym, ".csv");
+     }
+   else
+      g_human_n = kept;
   }
 
 void B100PaintHud()

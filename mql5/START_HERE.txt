@@ -1,4 +1,4 @@
-BREAK100 v2.06 — START HERE
+BREAK100 v2.07 — START HERE
 ===========================
 
 What this is
@@ -6,6 +6,10 @@ What this is
   After fill: dotted SL / ENTRY / TP1 / TP2 / TP3 with the price on each line.
   Rays hide when TP3 / SL / time-exit hits (not left up as a fake live setup).
   Telegram from the M30 chart only. Live orders locked. Not a profit claim.
+
+Human boxes
+  On M30 draw Insert → Objects → Rectangle over the pause (before the big candle).
+  EA writes Common\\Files\\BREAK100_human_box_BREAK100.csv. Not B100_* names (those are EA).
 
 Attach
   1. Compile BREAK100.mq5 in MetaEditor (F7). 0 errors.
