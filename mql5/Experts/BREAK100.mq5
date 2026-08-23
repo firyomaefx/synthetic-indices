@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.05"
-#property description "Blotter-first: unique quality train, OCO both sides. Live locked."
+#property version   "2.06"
+#property description "Half-size BUY/SELL arrows on M30. OCO both sides. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -1010,7 +1010,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.05  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.06  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -1990,7 +1990,7 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when)
    const string arr = "B100_jn_arr_" + id;
    const string ln  = "B100_jn_ln_" + id;
    const color clr = (dir > 0) ? CLR_ARR_BUY : CLR_ARR_SELL;
-   const int w = MathMax(2, B100JournalWidth());
+   const int w = MathMax(1, B100JournalWidth());
 
    if(ObjectFind(0, arr) >= 0)
       ObjectDelete(0, arr);
@@ -2029,7 +2029,7 @@ int B100JournalWidth()
    int scale = (int)ChartGetInteger(0, CHART_SCALE);
    if(scale < 0) scale = 0;
    if(scale > 5) scale = 5;
-   return 2 + scale;
+   return MathMax(1, (2 + scale) / 2);
   }
 
 void B100RescaleJournalMarks()
