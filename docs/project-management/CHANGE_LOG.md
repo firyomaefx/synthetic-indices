@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-24 | **Reverted to v2.15.** v2.16–2.18 label/Telegram experiments removed. Box paint is the 2.15 code. Live locked. | MQL5 revert | Owner request |
 | 2026-08-24 | v2.18 Drop pixel SL/TP labels. Plain OBJ_TEXT 3 bars right of last candle, stay after TP1 until TP3/SL/exit. RES/SUP stay on box. Live locked. | MQL5 levels | Owner request |
 | 2026-08-24 | v2.17 RES/SUP remain on the box after fill (owner did not ask to hide them). SL/ENTRY/TP stay far right. Live locked. | MQL5 box tags | Owner request |
 | 2026-08-24 | v2.16 One Telegram ENTRY (remember key before WebRequest; deal fill does not send). SL/ENTRY/TP labels at the right margin, staggered, off the dotted rays. Live locked. | MQL5 Telegram + levels | Owner request |
