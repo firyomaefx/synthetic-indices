@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-23 | v2.11 HUD stacked: WAIT, then prices, then HUMAN n — no overlap. Live locked. | MQL5 HUD | Owner request |
 | 2026-08-23 | v2.10 TP1 = 1R (min RR 1:1). TP2/TP3 from UCB. Human-box UP/DN rows enter unique train. OCO both. Live locked. | MQL5 + trainer | Owner request |
 | 2026-08-23 | v2.09 After a human rectangle, first M30 close outside the box is labeled UP/DN for learning. OCO both sides. Live locked. | MQL5 human box | Owner request |
 | 2026-08-23 | v2.08 On-chart `saved` tag and HUD HUMAN n when a drawn rectangle is harvested. Live locked. | MQL5 visual | Owner request |

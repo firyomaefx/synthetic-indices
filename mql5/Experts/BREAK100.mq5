@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.10"
-#property description "TP1=1R; TP2/TP3 ML; human boxes into blotter. OCO both. Live locked."
+#property version   "2.12"
+#property description "Wick high/low boxes. Smaller arrows. HUD no overlap. OCO. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -184,7 +184,7 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when = 0);
 void B100ReplayJournalMarks();
 void B100RescaleJournalMarks();
 int  B100JournalWidth();
-void B100HarvestHumanBoxes();
+void B100HarvestHumanBoxes(const bool snap_wicks = false);
 int  B100Pts(const double a, const double b);
 string B100Px(const double x);
 void B100FillSlTpFallback(const int dir, const double px, double &sl, double &tp1, double &tp2, double &tp3);
@@ -298,7 +298,7 @@ int OnInit()
    B100PaintPanel();
    ChartSetInteger(0, CHART_EVENT_OBJECT_CREATE, true);
    ChartSetInteger(0, CHART_EVENT_OBJECT_DELETE, true);
-   B100HarvestHumanBoxes();
+   B100HarvestHumanBoxes(true);
    EventSetTimer(60);
    B100MaybeStatus();
    return INIT_SUCCEEDED;
@@ -307,7 +307,7 @@ int OnInit()
 void OnTimer()
   {
    B100CaptureHeartbeat(g_capture);
-   B100HarvestHumanBoxes();
+   B100HarvestHumanBoxes(true);
    B100MaybeStatus();
   }
 
@@ -1022,7 +1022,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.10  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.12  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -2055,7 +2055,7 @@ int B100JournalWidth()
    int scale = (int)ChartGetInteger(0, CHART_SCALE);
    if(scale < 0) scale = 0;
    if(scale > 5) scale = 5;
-   return MathMax(1, (2 + scale) / 2);
+   return 1;
   }
 
 void B100RescaleJournalMarks()
@@ -2079,7 +2079,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
    if(id == CHARTEVENT_OBJECT_CREATE || id == CHARTEVENT_OBJECT_CHANGE ||
       id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_DELETE ||
       id == CHARTEVENT_OBJECT_ENDEDIT)
-      B100HarvestHumanBoxes();
+      B100HarvestHumanBoxes(id == CHARTEVENT_OBJECT_ENDEDIT);
   }
 
 bool B100IsEaRect(const string name)
@@ -2091,7 +2091,7 @@ bool B100IsEaRect(const string name)
    return false;
   }
 
-void B100HarvestHumanBoxes()
+void B100HarvestHumanBoxes(const bool snap_wicks)
   {
    if(!InpHarvestRects)
       return;
@@ -2123,16 +2123,43 @@ void B100HarvestHumanBoxes()
          t0 = t1;
          t1 = tmp;
         }
-      const double hi = MathMax(p0, p1);
-      const double lo = MathMin(p0, p1);
-      const double height = hi - lo;
-      if(height <= _Point)
-         continue;
+      double hi = MathMax(p0, p1);
+      double lo = MathMin(p0, p1);
       int shL = iBarShift(_Symbol, PERIOD_M30, t0, true);
       int shR = iBarShift(_Symbol, PERIOD_M30, t1, true);
       int nb = 0;
       if(shL >= 0 && shR >= 0)
+        {
          nb = MathAbs(shL - shR) + 1;
+         const int a = MathMax(shL, shR);
+         const int z = MathMin(shL, shR);
+         double whi = iHigh(_Symbol, PERIOD_M30, z);
+         double wlo = iLow(_Symbol, PERIOD_M30, z);
+         for(int s = z; s <= a; s++)
+           {
+            const double hh = iHigh(_Symbol, PERIOD_M30, s);
+            const double ll = iLow(_Symbol, PERIOD_M30, s);
+            if(hh > whi) whi = hh;
+            if(ll < wlo) wlo = ll;
+           }
+         if(whi > wlo)
+           {
+            hi = whi;
+            lo = wlo;
+            t0 = iTime(_Symbol, PERIOD_M30, a);
+            t1 = iTime(_Symbol, PERIOD_M30, z);
+            if(snap_wicks)
+              {
+               ObjectSetInteger(0, name, OBJPROP_TIME, 0, t0);
+               ObjectSetInteger(0, name, OBJPROP_TIME, 1, t1);
+               ObjectSetDouble(0, name, OBJPROP_PRICE, 0, hi);
+               ObjectSetDouble(0, name, OBJPROP_PRICE, 1, lo);
+              }
+           }
+        }
+      const double height = hi - lo;
+      if(height <= _Point)
+         continue;
       double h4span = 0.0;
       MqlRates h4[];
       if(CopyRates(_Symbol, PERIOD_H4, t1, 1, h4) == 1)
@@ -2252,7 +2279,18 @@ void B100PaintHud()
    const int x = 14;
    const int y = 16;
    const bool armed = (InpStrategy == B100_STRAT_BOX_M30 && g_box.ready && g_box.state == B100_BOX_ARMED);
-   const int h = (g_levels.valid || armed) ? 92 : (g_human_n > 0 ? 72 : 56);
+   string sub = "";
+   if(g_levels.valid)
+      sub = "SL " + DoubleToString(g_levels.sl, _Digits) + "   TP1 " + DoubleToString(g_levels.tp1, _Digits);
+   else if(armed)
+      sub = "BUY " + DoubleToString(g_box.buy_stop, _Digits) + "  SELL " + DoubleToString(g_box.sell_stop, _Digits);
+   const bool has_sub = (sub != "");
+   const bool has_hum = (g_human_n > 0);
+   int h = 44;
+   if(has_sub)
+      h += 16;
+   if(has_hum)
+      h += 16;
    if(ObjectFind(0, HUD_BG) < 0)
       ObjectCreate(0, HUD_BG, OBJ_RECTANGLE_LABEL, 0, 0, 0);
    ObjectSetInteger(0, HUD_BG, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
@@ -2280,25 +2318,20 @@ void B100PaintHud()
    ObjectSetInteger(0, LBL_SIG, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
    ObjectSetInteger(0, LBL_SIG, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
    ObjectSetInteger(0, LBL_SIG, OBJPROP_XDISTANCE, x + 16);
-   ObjectSetInteger(0, LBL_SIG, OBJPROP_YDISTANCE, y + 10);
-   ObjectSetInteger(0, LBL_SIG, OBJPROP_FONTSIZE, 22);
+   ObjectSetInteger(0, LBL_SIG, OBJPROP_YDISTANCE, y + 8);
+   ObjectSetInteger(0, LBL_SIG, OBJPROP_FONTSIZE, 16);
    ObjectSetString(0, LBL_SIG, OBJPROP_FONT, "Georgia");
    ObjectSetInteger(0, LBL_SIG, OBJPROP_COLOR, clr);
    ObjectSetInteger(0, LBL_SIG, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, LBL_SIG, OBJPROP_HIDDEN, true);
    ObjectSetString(0, LBL_SIG, OBJPROP_TEXT, g_signal);
 
-   string sub = "";
-   if(g_levels.valid)
-      sub = "SL " + DoubleToString(g_levels.sl, _Digits) + "   TP1 " + DoubleToString(g_levels.tp1, _Digits);
-   else if(armed)
-      sub = "BUY " + DoubleToString(g_box.buy_stop, _Digits) + "  SELL " + DoubleToString(g_box.sell_stop, _Digits);
    if(ObjectFind(0, LBL_LV) < 0)
       ObjectCreate(0, LBL_LV, OBJ_LABEL, 0, 0, 0);
    ObjectSetInteger(0, LBL_LV, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
    ObjectSetInteger(0, LBL_LV, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
    ObjectSetInteger(0, LBL_LV, OBJPROP_XDISTANCE, x + 16);
-   ObjectSetInteger(0, LBL_LV, OBJPROP_YDISTANCE, y + 42);
+   ObjectSetInteger(0, LBL_LV, OBJPROP_YDISTANCE, y + 30);
    ObjectSetInteger(0, LBL_LV, OBJPROP_FONTSIZE, 9);
    ObjectSetString(0, LBL_LV, OBJPROP_FONT, "Georgia");
    ObjectSetInteger(0, LBL_LV, OBJPROP_COLOR, C'140,136,128');
@@ -2306,13 +2339,14 @@ void B100PaintHud()
    ObjectSetInteger(0, LBL_LV, OBJPROP_HIDDEN, true);
    ObjectSetString(0, LBL_LV, OBJPROP_TEXT, sub);
 
-   string hum = (g_human_n > 0) ? ("HUMAN " + IntegerToString(g_human_n) + " saved") : "";
+   string hum = has_hum ? ("HUMAN " + IntegerToString(g_human_n) + " saved") : "";
+   const int y_hum = has_sub ? (y + 48) : (y + 36);
    if(ObjectFind(0, LBL_HUM) < 0)
       ObjectCreate(0, LBL_HUM, OBJ_LABEL, 0, 0, 0);
    ObjectSetInteger(0, LBL_HUM, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
    ObjectSetInteger(0, LBL_HUM, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
    ObjectSetInteger(0, LBL_HUM, OBJPROP_XDISTANCE, x + 16);
-   ObjectSetInteger(0, LBL_HUM, OBJPROP_YDISTANCE, y + (sub == "" ? 42 : 58));
+   ObjectSetInteger(0, LBL_HUM, OBJPROP_YDISTANCE, y_hum);
    ObjectSetInteger(0, LBL_HUM, OBJPROP_FONTSIZE, 9);
    ObjectSetString(0, LBL_HUM, OBJPROP_FONT, "Georgia");
    ObjectSetInteger(0, LBL_HUM, OBJPROP_COLOR, CLR_ARR_BUY);
