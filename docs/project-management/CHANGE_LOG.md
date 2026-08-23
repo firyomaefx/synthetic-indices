@@ -2,7 +2,8 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
-| 2026-08-24 | v2.16 One Telegram ENTRY (remember key before WebRequest; deal fill does not send). SL/ENTRY/TP labels at the right margin, staggered, off the dotted rays. RES/SUP only while WATCH. Live locked. | MQL5 Telegram + levels | Owner request |
+| 2026-08-24 | v2.17 RES/SUP remain on the box after fill (owner did not ask to hide them). SL/ENTRY/TP stay far right. Live locked. | MQL5 box tags | Owner request |
+| 2026-08-24 | v2.16 One Telegram ENTRY (remember key before WebRequest; deal fill does not send). SL/ENTRY/TP labels at the right margin, staggered, off the dotted rays. Live locked. | MQL5 Telegram + levels | Owner request |
 | 2026-08-24 | v2.15 Train audit: unique file no longer clones unique_unique_…; outcome one row per armed box; policy path is the EA file. Unique quality=1 still n=2 (need 16). Live locked. | MQL5 Capture + HF tools | Owner audit |
 | 2026-08-23 | v2.14 Armed auto box: small WATCH arrows on BUY STOP and SELL STOP. Fill arrow + Alert only when M30 closes outside. Not a profit claim. Live locked. | MQL5 box visual | Owner request |
 | 2026-08-23 | v2.13 HUD cursor-stack (measure WAIT then HUMAN — no shared Y). Human + EA boxes snap to M30 wick high/low. Journal arrows Wingdings 8pt (half). Live locked. | MQL5 HUD + box + arrows | Owner request |

@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.16"
-#property description "One Telegram ENTRY. Right-edge SL/TP labels. Live locked."
+#property version   "2.17"
+#property description "RES/SUP stay on the box. One Telegram ENTRY. Right-edge SL/TP. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -1047,7 +1047,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.16  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.17  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -2015,17 +2015,15 @@ void B100PaintBox()
         }
       else
          B100HideWatchMarks();
-      B100BoxTag(BOX_RES_LBL, t1, g_box.high, "RES", CLR_RES, ANCHOR_LEFT_LOWER);
-      B100BoxTag(BOX_SUP_LBL, t1, g_box.low,  "SUP", CLR_SUP, ANCHOR_LEFT_UPPER);
      }
    else
      {
       ObjectSetInteger(0, BOX_BUY,  OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
       ObjectSetInteger(0, BOX_SELL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
       B100HideWatchMarks();
-      ObjectSetInteger(0, BOX_RES_LBL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
-      ObjectSetInteger(0, BOX_SUP_LBL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
      }
+   B100BoxTag(BOX_RES_LBL, t0, g_box.high, "RES", CLR_RES, ANCHOR_LEFT_LOWER);
+   B100BoxTag(BOX_SUP_LBL, t0, g_box.low,  "SUP", CLR_SUP, ANCHOR_LEFT_UPPER);
   }
 
 void B100UpdateLines()
