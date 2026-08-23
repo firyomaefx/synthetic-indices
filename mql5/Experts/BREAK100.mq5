@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.15"
-#property description "Train unique-file fix. Outcome dedupe. WATCH arrows. Live locked."
+#property version   "2.16"
+#property description "One Telegram ENTRY. Right-edge SL/TP labels. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -662,12 +662,25 @@ void B100FillSlTpFallback(const int dir, const double px, double &sl, double &tp
       tp2 = g_levels.tp2;
       tp3 = g_levels.tp3;
      }
-   if(tp1 <= 0.0 && g_box.height > 0.0 && px > 0.0)
+   if(sl > 0.0 && px > 0.0)
      {
-      const double h = g_box.height;
-      tp1 = px + dir * h * MathMax(g_policy.tp1_r, InpTp1R);
-      tp2 = px + dir * h * MathMax(g_policy.tp2_r, InpTp2R);
-      tp3 = px + dir * h * MathMax(g_policy.tp3_r, InpTp3R);
+      const double R = MathAbs(px - sl);
+      tp1 = px + dir * R;
+      const double h = (g_box.height > 0.0) ? g_box.height : R;
+      double d2 = 2.0 * R;
+      double d3 = 3.0 * R;
+      if(InpUseLearner)
+        {
+         if(g_policy.tp2_r > 0.0)
+            d2 = MathMax(d2, g_policy.tp2_r * h);
+         if(g_policy.tp3_r > 0.0)
+            d3 = MathMax(d3, g_policy.tp3_r * h);
+        }
+      d3 = MathMax(d3, d2 + 0.2 * R);
+      if(tp2 <= 0.0)
+         tp2 = px + dir * d2;
+      if(tp3 <= 0.0)
+         tp3 = px + dir * d3;
      }
    if(dir > 0)
      {
@@ -795,6 +808,8 @@ void B100TelegramWatch(void)
 void B100TelegramFill(const int dir, const double px, const bool sibling_deleted)
   {
    const string key = B100TgKey(dir > 0 ? "ENTRY_BUY" : "ENTRY_SELL");
+   if(B100TgSeen(key))
+      return;
    g_oco_fill_dir = dir;
    g_oco_fill_px  = px;
    string err = "";
@@ -1032,7 +1047,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.15  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.16  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -1232,7 +1247,27 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       if(entry == DEAL_ENTRY_IN)
         {
          const int dir = (dtype == DEAL_TYPE_BUY) ? 1 : -1;
-         B100TelegramFill(dir, px, true);
+         string err = "";
+         if(dir > 0 && g_oco_sell_tk != 0)
+           {
+            B100DemoCancelTicket(g_oco_sell_tk, err);
+            g_oco_sell_tk = 0;
+           }
+         else if(dir < 0 && g_oco_buy_tk != 0)
+           {
+            B100DemoCancelTicket(g_oco_buy_tk, err);
+            g_oco_buy_tk = 0;
+           }
+         g_oco_fill_dir = dir;
+         g_oco_fill_px  = px;
+         if(!g_fib.on)
+           {
+            const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            const double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+            B100FillBoxLevels(dir, px, ask, bid);
+            if(g_levels.valid)
+               B100FibLatch(dir, g_levels.entry, g_levels.sl, g_levels.tp1, g_levels.tp2, g_levels.tp3);
+           }
         }
       else if(entry == DEAL_ENTRY_OUT)
         {
@@ -1716,7 +1751,7 @@ void B100LevelRay(const string name, const datetime t0, const datetime t1, const
    ObjectSetString(0, name, OBJPROP_TOOLTIP, caption + " " + DoubleToString(price, _Digits));
   }
 
-void B100LevelTag(const string name, const datetime t, const double price, const string text, const color clr)
+void B100RightPriceLabel(const string name, const double price, const string text, const color clr, int &used_y[], int &n_used)
   {
    if(price <= 0.0 || text == "")
      {
@@ -1724,31 +1759,56 @@ void B100LevelTag(const string name, const datetime t, const double price, const
       return;
      }
    if(ObjectFind(0, name) >= 0 &&
-      (ENUM_OBJECT)ObjectGetInteger(0, name, OBJPROP_TYPE) != OBJ_TEXT)
+      (ENUM_OBJECT)ObjectGetInteger(0, name, OBJPROP_TYPE) != OBJ_LABEL)
       ObjectDelete(0, name);
-   datetime tx = t;
-   if(tx == 0)
-      tx = TimeCurrent();
+   int px = 0, py = 20;
+   const datetime tnow = iTime(_Symbol, PERIOD_CURRENT, 0);
+   if(!ChartTimePriceToXY(0, 0, (tnow > 0 ? tnow : TimeCurrent()), price, px, py))
+      py = 24;
+   py -= 7;
+   if(py < 72)
+      py = 72;
+   for(int k = 0; k < 8; k++)
+     {
+      bool hit = false;
+      for(int i = 0; i < n_used; i++)
+        {
+         if(MathAbs(py - used_y[i]) < 16)
+           {
+            py = used_y[i] + 16;
+            hit = true;
+            break;
+           }
+        }
+      if(!hit)
+         break;
+     }
+   const int ch = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
+   if(ch > 20 && py > ch - 16)
+      py = ch - 16;
+   if(n_used < ArraySize(used_y))
+      used_y[n_used++] = py;
    if(ObjectFind(0, name) < 0)
-      ObjectCreate(0, name, OBJ_TEXT, 0, tx, price);
-   ObjectSetInteger(0, name, OBJPROP_TIME, 0, tx);
-   ObjectSetDouble(0, name, OBJPROP_PRICE, 0, price);
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
-   ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - 12);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, py);
    ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 8);
+   ObjectSetString(0, name, OBJPROP_FONT, "Arial");
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
-   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
   }
 
-void B100PaintOneLevel(const string ray, const string tag, const datetime t0, const datetime t1, const datetime tx,
-                       const double price, const string label, const color clr)
+void B100PaintOneLevel(const string ray, const string tag, const datetime t0, const datetime t1,
+                       const double price, const string label, const color clr, int &used_y[], int &n_used)
   {
    B100LevelRay(ray, t0, t1, price, clr, label);
    if(price > 0.0)
-      B100LevelTag(tag, tx, price, label + "  " + DoubleToString(price, _Digits), clr);
+      B100RightPriceLabel(tag, price, label + "  " + DoubleToString(price, _Digits), clr, used_y, n_used);
   }
 
 void B100PaintLevels()
@@ -1803,13 +1863,14 @@ void B100PaintLevels()
    datetime tb = iTime(_Symbol, PERIOD_CURRENT, 0);
    if(tb <= ta)
       tb = ta + PeriodSeconds(PERIOD_CURRENT);
-   const datetime tx = tb + PeriodSeconds(PERIOD_CURRENT);
 
-   B100PaintOneLevel(LV_ENTRY, LV_ENTRY_L, ta, tb, tx, en, "ENTRY", clrSilver);
-   B100PaintOneLevel(LV_SL,    LV_SL_L,    ta, tb, tx, sl, "SL",    CLR_ARR_SELL);
-   B100PaintOneLevel(LV_TP1,   LV_TP1_L,   ta, tb, tx, p1, "TP1",   CLR_ARR_BUY);
-   B100PaintOneLevel(LV_TP2,   LV_TP2_L,   ta, tb, tx, p2, "TP2",   C'40,180,140');
-   B100PaintOneLevel(LV_TP3,   LV_TP3_L,   ta, tb, tx, p3, "TP3",   C'30,140,110');
+   int used_y[8];
+   int n_used = 0;
+   B100PaintOneLevel(LV_ENTRY, LV_ENTRY_L, ta, tb, en, "ENTRY", clrSilver, used_y, n_used);
+   B100PaintOneLevel(LV_SL,    LV_SL_L,    ta, tb, sl, "SL",    CLR_ARR_SELL, used_y, n_used);
+   B100PaintOneLevel(LV_TP1,   LV_TP1_L,   ta, tb, p1, "TP1",   CLR_ARR_BUY, used_y, n_used);
+   B100PaintOneLevel(LV_TP2,   LV_TP2_L,   ta, tb, p2, "TP2",   C'40,180,140', used_y, n_used);
+   B100PaintOneLevel(LV_TP3,   LV_TP3_L,   ta, tb, p3, "TP3",   C'30,140,110', used_y, n_used);
    ChartRedraw(0);
   }
 
@@ -1954,15 +2015,17 @@ void B100PaintBox()
         }
       else
          B100HideWatchMarks();
+      B100BoxTag(BOX_RES_LBL, t1, g_box.high, "RES", CLR_RES, ANCHOR_LEFT_LOWER);
+      B100BoxTag(BOX_SUP_LBL, t1, g_box.low,  "SUP", CLR_SUP, ANCHOR_LEFT_UPPER);
      }
    else
      {
       ObjectSetInteger(0, BOX_BUY,  OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
       ObjectSetInteger(0, BOX_SELL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
       B100HideWatchMarks();
+      ObjectSetInteger(0, BOX_RES_LBL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      ObjectSetInteger(0, BOX_SUP_LBL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
      }
-   B100BoxTag(BOX_RES_LBL, t0, g_box.high, "RES", CLR_RES, ANCHOR_LEFT_LOWER);
-   B100BoxTag(BOX_SUP_LBL, t0, g_box.low,  "SUP", CLR_SUP, ANCHOR_LEFT_UPPER);
   }
 
 void B100UpdateLines()
@@ -2142,7 +2205,11 @@ void B100RescaleJournalMarks()
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
   {
    if(id == CHARTEVENT_CHART_CHANGE)
+     {
       B100RescaleJournalMarks();
+      B100PaintLevels();
+      B100PaintBox();
+     }
    if(id == CHARTEVENT_OBJECT_CREATE || id == CHARTEVENT_OBJECT_CHANGE ||
       id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_DELETE ||
       id == CHARTEVENT_OBJECT_ENDEDIT)
