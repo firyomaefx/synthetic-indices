@@ -90,11 +90,21 @@ MT5 → Tools → Options → Expert Advisors → allow `https://api.telegram.or
 
 ---
 
-## Hugging Face (free tier)
+## Hugging Face (free tier only)
 
-Private dataset backup + PC retrain. Same `policy.csv` the EA already loads. Need **16+** `quality=1` rows. Gradio Space needs Pro — skipped.
+Private dataset [`Tengkolok/break100-boom`](https://huggingface.co/datasets/Tengkolok/break100-boom) (404 if you are logged out — that is expected).
 
-Config (not in git): `Common\Files\BREAK100_hf.txt` (`token=` `dataset=`).
+| Role | Free how |
+|---|---|
+| Source of truth | Unique `quality=1` train + `policy.csv` the EA loads |
+| Extra backup | Outcome CSV (fills). **No ticks, no tokens** |
+| Dataset card | README on the Hub after sync |
+| Click-to-train | CPU Space in `tools/hf_space` (no GPU — that was the old 402) |
+| Always-on | 15-min **PC** task (free Spaces sleep) |
+
+HF trains **SL/TP**. It does **not** drop an OCO side. Need **16+** unique `quality=1` rows. Not a profit claim.
+
+Config (not in git): `Common\Files\BREAK100_hf.txt` (`token=` `dataset=Tengkolok/break100-boom`).
 
 ```powershell
 python tools/break100_hf_train.py

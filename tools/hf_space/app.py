@@ -63,15 +63,16 @@ def train_hub(hub_repo, token, filename):
 
 with gr.Blocks(title="BREAK100 HF backup trainer") as demo:
     gr.Markdown(
-        """# BREAK100 backup trainer
-Always-on Hugging Face copy of the Windows trainer.
+        """# BREAK100 backup trainer (free CPU)
 
-1. EA writes `BREAK100_train_*.csv` on the PC  
-2. Upload it here (or pull from your private dataset)  
-3. Download `BREAK100_policy_*.csv` → `%APPDATA%\\MetaQuotes\\Terminal\\Common\\Files\\`  
-4. Reattach the EA  
+No GPU. No Pro. Spaces **sleep** — PC `break100_hf_sync.py` is always-on.
 
-Need **16+** quality=1 rows. **Not a profit claim. No broker orders.**
+1. Dataset `Tengkolok/break100-boom` holds unique train + policy  
+2. Pull + train here **or** upload `BREAK100_train_unique_*.csv`  
+3. Put `policy.csv` in MT5 Common Files, reattach EA  
+
+Need **16+** unique quality=1 rows. **Not a profit claim. No broker orders.**  
+OCO (BUY fill cancels SELL, and the reverse) is the chart EA, not this Space.
 """
     )
     with gr.Tab("Upload CSV"):
@@ -84,7 +85,7 @@ Need **16+** quality=1 rows. **Not a profit claim. No broker orders.**
         btn1.click(train_upload, [f, hub1, tok1], [log1, out1])
     with gr.Tab("From Hub dataset"):
         hub2 = gr.Textbox(label="Dataset repo", placeholder="yourname/break100-boom")
-        fn2 = gr.Textbox(label="Filename", value="BREAK100_train_BREAK100.csv")
+        fn2 = gr.Textbox(label="Filename", value="BREAK100_train_unique_BREAK100.csv")
         tok2 = gr.Textbox(label="HF token", type="password")
         btn2 = gr.Button("Pull + train", variant="primary")
         log2 = gr.Textbox(label="Result", lines=14)

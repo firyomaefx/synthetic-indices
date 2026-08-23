@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-23 | HF free-tier: sync unique quality=1 train + outcome + dataset card; CPU Space only (no GPU/Pro). OCO sides unchanged. | tools/hf | Owner request |
 | 2026-08-23 | v2.04 OCO core: always BUY STOP + SELL STOP. First fill cancels the other. RL must not drop a side before fill. Live locked. | MQL5 Box | Owner request |
 | 2026-08-23 | v2.03 CAPA: only BUY arrows because HF gate SKIP/BUY zeroed sell_stop (p_dn≈0). Chart watches both; DEMO gate only; magenta 234 SELL arrows. Live locked. | MQL5 Box + arrows | Owner request |
 | 2026-08-23 | v2.02 Hide dotted SL/ENTRY/TP rays when the path ends (TP3 / SL / horizon). Same signal leftover, not a new setup. Live locked. | MQL5 visual | Owner request |

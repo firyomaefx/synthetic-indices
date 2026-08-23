@@ -11,7 +11,8 @@ Reads token/dataset from:
   token=hf_...
   dataset=yourname/break100-boom
 
-Does NOT send broker orders. Not a profit claim.
+Free-tier Hub only: unique train + policy + outcome + dataset card.
+No GPU Space. No ticks. No tokens. Does NOT send broker orders. Not a profit claim.
 """
 from __future__ import annotations
 
@@ -74,6 +75,43 @@ def rec_id(rec: dict) -> str:
     return "|".join(
         str(rec.get(k, "")) for k in ("side", "label", "mfe", "mae", "hw", "entry", "exit")
     )
+
+
+def unique_quality(recs):
+    """One row per episode_id, quality=1 only. Drops bounce-dupe learn.csv spam."""
+    by = {}
+    for rec in recs:
+        try:
+            q = int(float(rec.get("quality", "1") or 1))
+        except (TypeError, ValueError):
+            q = 1
+        if q == 0:
+            continue
+        by[rec_id(rec)] = rec
+    return list(by.values())
+
+
+DATASET_CARD = """# BREAK100 backup (private, free tier)
+
+This is **not** Boom tick data. It is the BREAK100 **M30 box** backup for Tengkolok.
+
+## Files
+
+| File | What |
+|---|---|
+| `BREAK100_train_BREAK100.csv` | Closed episodes (merged). Prefer unique quality=1. |
+| `BREAK100_train_unique_BREAK100.csv` | One row per `episode_id`, `quality=1` only |
+| `BREAK100_policy_BREAK100.csv` | One-row policy the MT5 EA loads (SL/TP in box heights) |
+| `BREAK100_outcome_BREAK100.csv` | Fill labels (UP/DOWN/CENSOR) for arrows/journal |
+
+Not stored: ticks, Telegram/HF tokens, account login, live orders.
+
+## Use
+
+PC task `break100_hf_sync.py` (every 15 min) is the always-on worker. Free Spaces **sleep**.
+
+Need **16+** unique `quality=1` rows. RL does **not** drop OCO sides. **Not a profit claim.**
+"""
 
 
 def merge_records(local, hub):
@@ -176,13 +214,46 @@ def sync_one(train_path: Path, token: str, dataset: str) -> str:
     if dataset and merged:
         hub_upload(dataset, train_path, token)
 
+    uniq = unique_quality(merged)
+    uniq_path = train_path.with_name(train_path.name.replace("BREAK100_train_", "BREAK100_train_unique_"))
+    if uniq_path == train_path:
+        uniq_path = train_path.with_name("BREAK100_train_unique_" + train_path.name)
+    if uniq:
+        write_records(uniq_path, fields, uniq)
+        logs.append(f"unique quality=1 rows {len(uniq)}")
+        if dataset:
+            hub_upload(dataset, uniq_path, token)
+
+    outcome = train_path.with_name(train_path.name.replace("BREAK100_train_", "BREAK100_outcome_"))
+    if outcome.exists() and dataset:
+        hub_upload(dataset, outcome, token)
+
+    if dataset:
+        card = train_path.parent / "BREAK100_HF_README.md"
+        card.write_text(DATASET_CARD, encoding="utf-8")
+        try:
+            from huggingface_hub import HfApi, login
+
+            if token:
+                login(token=token)
+            HfApi().upload_file(
+                path_or_fileobj=str(card),
+                path_in_repo="README.md",
+                repo_id=dataset,
+                repo_type="dataset",
+            )
+            logs.append("Hub dataset card README.md")
+        except Exception as e:
+            logs.append(f"Hub dataset card: {e}")
+
     pol = T.policy_path(train_path)
-    n_good = len(T.load_rows(train_path))
+    train_for_fit = uniq_path if uniq_path.exists() and len(uniq) >= T.MIN_N else train_path
+    n_good = len(T.load_rows(train_for_fit))
     local_pn = policy_n(pol)
     need_train = n_good >= T.MIN_N and (local_pn < n_good or not pol.exists())
     if need_train:
-        result = T.train_file(train_path)
-        logs.append(result["log"])
+        result = T.train_file(train_for_fit)
+        logs.append(result["log"] + f"  (fit on {train_for_fit.name})")
         if dataset:
             hub_upload(dataset, Path(result["policy"]), token)
     elif dataset:
