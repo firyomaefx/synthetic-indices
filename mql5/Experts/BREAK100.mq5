@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.18"
-#property description "Simple SL/ENTRY/TP text to the right of candles. One Telegram ENTRY. Live locked."
+#property version   "2.15"
+#property description "Train unique-file fix. Outcome dedupe. WATCH arrows. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -662,25 +662,12 @@ void B100FillSlTpFallback(const int dir, const double px, double &sl, double &tp
       tp2 = g_levels.tp2;
       tp3 = g_levels.tp3;
      }
-   if(sl > 0.0 && px > 0.0)
+   if(tp1 <= 0.0 && g_box.height > 0.0 && px > 0.0)
      {
-      const double R = MathAbs(px - sl);
-      tp1 = px + dir * R;
-      const double h = (g_box.height > 0.0) ? g_box.height : R;
-      double d2 = 2.0 * R;
-      double d3 = 3.0 * R;
-      if(InpUseLearner)
-        {
-         if(g_policy.tp2_r > 0.0)
-            d2 = MathMax(d2, g_policy.tp2_r * h);
-         if(g_policy.tp3_r > 0.0)
-            d3 = MathMax(d3, g_policy.tp3_r * h);
-        }
-      d3 = MathMax(d3, d2 + 0.2 * R);
-      if(tp2 <= 0.0)
-         tp2 = px + dir * d2;
-      if(tp3 <= 0.0)
-         tp3 = px + dir * d3;
+      const double h = g_box.height;
+      tp1 = px + dir * h * MathMax(g_policy.tp1_r, InpTp1R);
+      tp2 = px + dir * h * MathMax(g_policy.tp2_r, InpTp2R);
+      tp3 = px + dir * h * MathMax(g_policy.tp3_r, InpTp3R);
      }
    if(dir > 0)
      {
@@ -808,8 +795,6 @@ void B100TelegramWatch(void)
 void B100TelegramFill(const int dir, const double px, const bool sibling_deleted)
   {
    const string key = B100TgKey(dir > 0 ? "ENTRY_BUY" : "ENTRY_SELL");
-   if(B100TgSeen(key))
-      return;
    g_oco_fill_dir = dir;
    g_oco_fill_px  = px;
    string err = "";
@@ -1047,7 +1032,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.18  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.15  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -1247,27 +1232,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       if(entry == DEAL_ENTRY_IN)
         {
          const int dir = (dtype == DEAL_TYPE_BUY) ? 1 : -1;
-         string err = "";
-         if(dir > 0 && g_oco_sell_tk != 0)
-           {
-            B100DemoCancelTicket(g_oco_sell_tk, err);
-            g_oco_sell_tk = 0;
-           }
-         else if(dir < 0 && g_oco_buy_tk != 0)
-           {
-            B100DemoCancelTicket(g_oco_buy_tk, err);
-            g_oco_buy_tk = 0;
-           }
-         g_oco_fill_dir = dir;
-         g_oco_fill_px  = px;
-         if(!g_fib.on)
-           {
-            const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-            const double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-            B100FillBoxLevels(dir, px, ask, bid);
-            if(g_levels.valid)
-               B100FibLatch(dir, g_levels.entry, g_levels.sl, g_levels.tp1, g_levels.tp2, g_levels.tp3);
-           }
+         B100TelegramFill(dir, px, true);
         }
       else if(entry == DEAL_ENTRY_OUT)
         {
@@ -1763,7 +1728,7 @@ void B100LevelTag(const string name, const datetime t, const double price, const
       ObjectDelete(0, name);
    datetime tx = t;
    if(tx == 0)
-      tx = TimeCurrent() + 3 * PeriodSeconds(PERIOD_CURRENT);
+      tx = TimeCurrent();
    if(ObjectFind(0, name) < 0)
       ObjectCreate(0, name, OBJ_TEXT, 0, tx, price);
    ObjectSetInteger(0, name, OBJPROP_TIME, 0, tx);
@@ -1838,7 +1803,7 @@ void B100PaintLevels()
    datetime tb = iTime(_Symbol, PERIOD_CURRENT, 0);
    if(tb <= ta)
       tb = ta + PeriodSeconds(PERIOD_CURRENT);
-   datetime tx = tb + 3 * PeriodSeconds(PERIOD_CURRENT);
+   const datetime tx = tb + PeriodSeconds(PERIOD_CURRENT);
 
    B100PaintOneLevel(LV_ENTRY, LV_ENTRY_L, ta, tb, tx, en, "ENTRY", clrSilver);
    B100PaintOneLevel(LV_SL,    LV_SL_L,    ta, tb, tx, sl, "SL",    CLR_ARR_SELL);
@@ -2177,11 +2142,7 @@ void B100RescaleJournalMarks()
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
   {
    if(id == CHARTEVENT_CHART_CHANGE)
-     {
       B100RescaleJournalMarks();
-      B100PaintLevels();
-      B100PaintBox();
-     }
    if(id == CHARTEVENT_OBJECT_CREATE || id == CHARTEVENT_OBJECT_CHANGE ||
       id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_DELETE ||
       id == CHARTEVENT_OBJECT_ENDEDIT)
