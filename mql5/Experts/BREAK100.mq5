@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.04"
-#property description "OCO both sides: first fill cancels the other. RL does not drop a side. Live locked."
+#property version   "2.05"
+#property description "Blotter-first: unique quality train, OCO both sides. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -960,18 +960,12 @@ void B100TelegramStatus(void)
    else if(g_episode.active)
       msg += "📍 ARMED\n";
 
-   string gate = (g_policy.dir_gate == "" ? "BOTH" : g_policy.dir_gate);
-   string gface = "↔️";
-   if(gate == "SKIP")
-      gface = "🚫";
-   else if(gate == "BUY")
-      gface = "🟢";
-   else if(gate == "SELL")
-      gface = "🔴";
-   msg += "🧠 " + IntegerToString(g_learner.n) + "  " + gface + " " + gate;
-   if(gate == "SKIP")
-      msg += "  trap " + IntegerToString((int)MathRound(100.0 * g_policy.p_fail)) + "%";
-   msg += "\n";
+   int n_u = 0, n_sl = 0, n_tp3 = 0;
+   B100TrainBlotterStats(n_u, n_sl, n_tp3);
+   msg += "📒 unique " + IntegerToString(n_u);
+   msg += "  ❌" + IntegerToString(n_sl);
+   msg += "  ✅TP3 " + IntegerToString(n_tp3) + "\n";
+   msg += "🧠 policy n=" + IntegerToString(g_policy.n) + "  OCO both\n";
 
    if(g_policy.sl_r > 0.0)
       msg += "🎯 " + DoubleToString(g_policy.sl_r, 1) + "R → " +
@@ -1016,7 +1010,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.04  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.05  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";

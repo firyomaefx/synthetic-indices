@@ -110,7 +110,7 @@ int B100TrainScore(const B100Box &b, const double bid, const double ask, string 
       why = "tick_cross";
       return 0;
      }
-   if(b.height <= 0.0 || b.atr <= 0.0 || b.bars < 3)
+   if(b.height <= 0.0 || b.bars < 3)
      {
       why = "box_invalid";
       return 0;
@@ -298,6 +298,50 @@ bool B100TrainStep(B100Episode &e, const double bid, const double ask, const int
       return true;
      }
    return false;
+  }
+
+void B100TrainBlotterStats(int &n_unique, int &n_sl, int &n_tp3)
+  {
+   n_unique = 0;
+   n_sl = 0;
+   n_tp3 = 0;
+   string s = _Symbol;
+   StringReplace(s, " ", "_");
+   const int fh = FileOpen("BREAK100_train_" + s + ".csv",
+                           FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ);
+   if(fh == INVALID_HANDLE)
+      return;
+   bool header = true;
+   string seen = "|";
+   while(!FileIsEnding(fh))
+     {
+      string line = FileReadString(fh);
+      if(header)
+        {
+         header = false;
+         continue;
+        }
+      if(StringLen(line) < 8)
+         continue;
+      string parts[];
+      const int n = StringSplit(line, ',', parts);
+      if(n < 24)
+         continue;
+      const int q = (int)StringToInteger(parts[6]);
+      if(q != 1)
+         continue;
+      const string eid = parts[22];
+      if(StringFind(seen, "|" + eid + "|") >= 0)
+         continue;
+      seen += eid + "|";
+      n_unique++;
+      const string ex = parts[7];
+      if(ex == "SL" || ex == "CLOSE_SL")
+         n_sl++;
+      if(ex == "TP3")
+         n_tp3++;
+     }
+   FileClose(fh);
   }
 
 #endif

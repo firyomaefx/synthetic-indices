@@ -2,7 +2,7 @@
 
 M30 box-breakout expert for **BREAK100** (Boom-class synthetic) on MetaTrader 5.
 
-**EA v2.04** · chart **M30 only** · live orders **locked** · **not a profit claim**
+**EA v2.05** · chart **M30 only** · live orders **locked** · **not a profit claim**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled in source)`
 
@@ -119,7 +119,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.04) |
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.05) |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
@@ -138,6 +138,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **2.05** | Blotter-first: quality ignores ATR; unique train only; Telegram unique n; policy gate always OCO BOTH. Kill: 8 weeks unique n<16 or OOS R≤0 → no promotion |
 | **2.04** | Core OCO: always both stops. BUY fill cancels SELL, SELL fill cancels BUY. RL SL/TP only |
 | **2.03** | CAPA: chart always both sides + magenta SELL arrows. RL gate no longer zeros `sell_stop` on Observe |
 | **2.02** | Hide dotted SL/TP rays when the path ends (TP3 / SL / time-exit), not only on the next WATCH |
@@ -158,5 +159,6 @@ Every EA or tools change updates this README in the same commit.
 
 - No live `OrderSend` path. Do not “just enable” Live.
 - Tokens for Telegram and Hugging Face stay in **Common Files**, never in git.
-- Quality train rows are still thin. Policy `gate=SKIP` is common. That is **not** a go for money.
+- Unique `quality=1` rows are the book. **Kill after 8 weeks** if unique n < 16 or OOS R after spread ≤ 0: stay Observe, no TF change, no Live.
+- Trainer never uses `learn.csv` copies. Policy direction is **OCO BOTH**.
 - Web Grok and laptop Grok only meet through this GitHub remote. See [INTEGRATION.md](INTEGRATION.md).

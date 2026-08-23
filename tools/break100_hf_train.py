@@ -53,14 +53,15 @@ def find_common_csv():
     app = os.environ.get("APPDATA", "")
     if app:
         root = Path(app) / "MetaQuotes" / "Terminal" / "Common" / "Files"
+        uniq = sorted(root.glob("BREAK100_train_unique_*.csv"), key=lambda p: p.stat().st_mtime)
+        if uniq:
+            return uniq[-1]
         trains = sorted(root.glob("BREAK100_train_*.csv"), key=lambda p: p.stat().st_mtime)
         if trains:
             return trains[-1]
-        learns = sorted(root.glob("BREAK100_learn_*.csv"), key=lambda p: p.stat().st_mtime)
-        if learns:
-            return learns[-1]
+        # learn.csv is bounce duplicates — never train from it.
     here = Path.cwd()
-    hits = sorted(here.glob("BREAK100_train_*.csv")) + sorted(here.glob("BREAK100_learn_*.csv"))
+    hits = sorted(here.glob("BREAK100_train_unique_*.csv")) + sorted(here.glob("BREAK100_train_*.csv"))
     return hits[-1] if hits else None
 
 
@@ -114,8 +115,20 @@ def load_rows(path: Path):
                 y = "DOWN"
             rec_out = {"side": side, "label": label, "mfe": mfe, "mae": mae, "hw": hw, "arm": arm, "y": y}
             rec_out.update(extra)
+            eid = str(rec.get("episode_id") or "").strip()
+            rec_out["episode_id"] = eid
             rows.append(rec_out)
+    if any(r.get("episode_id") for r in rows):
+        by = {}
+        for r in rows:
+            k = r.get("episode_id") or rec_id_fallback(r)
+            by[k] = r
+        rows = list(by.values())
     return rows
+
+
+def rec_id_fallback(r: dict) -> str:
+    return "|".join(str(r.get(k, "")) for k in ("side", "label", "mfe", "mae", "hw"))
 
 
 def as_hf_dataset(rows):
@@ -338,11 +351,13 @@ def train_file(csv_path) -> dict:
         result["log"] = "\n".join(lines + [f"Need {MIN_N} rows. Wrote DEFAULT OCO policy."])
         return result
 
+    rows.sort(key=lambda r: str(r.get("episode_id") or "0"))
     split = max(MIN_N, int(n * 0.7))
     train, hold = rows[:split], rows[split:]
     arm = pick_ucb(train)
     sl, t1, t2, t3, mean_r = blend(train, arm)
-    pu, pd, pf, gate = hf_direction_fit(train)
+    pu, pd, pf, _ignored = hf_direction_fit(train)
+    gate = "BOTH"
     oos = 0.0
     if hold:
         oos = sum(realized_r(r["mfe"], r["mae"], r["hw"], sl, t3) for r in hold) / len(hold)
@@ -351,7 +366,7 @@ def train_file(csv_path) -> dict:
         f"arm={ARMS[arm][0]} ({arm})",
         f"SL/hw {sl:.3f}  TP {t1:.3f}/{t2:.3f}/{t3:.3f}",
         f"in-sample R {mean_r:.4f}  holdout R {oos:.4f}",
-        f"p_up={pu:.3f} p_dn={pd:.3f} p_fail={pf:.3f} gate={gate}",
+        f"p_up={pu:.3f} p_dn={pd:.3f} p_fail={pf:.3f} gate=BOTH (OCO)",
         "Holdout R is a research score. Not expected profit.",
         f"Wrote {out}",
     ]
@@ -369,7 +384,7 @@ def train_file(csv_path) -> dict:
         p_up=pu,
         p_dn=pd,
         p_fail=pf,
-        gate=gate,
+        gate="BOTH",
         log="\n".join(lines),
     )
     return result
