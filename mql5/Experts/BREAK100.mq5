@@ -2142,12 +2142,11 @@ void B100HarvestHumanBoxes()
       int after_dir = 0;
       int after_bars = 0;
       double after_size = 0.0;
-      const int shR = iBarShift(_Symbol, PERIOD_M30, t1, true);
-      const int tmax = MathMax(2, InpBoxTimeout);
+      const int max_after = MathMax(2, InpBoxTimeout);
       if(shR > 1)
         {
          int seen = 0;
-         for(int shk = shR - 1; shk >= 1 && seen < tmax; shk--)
+         for(int shk = shR - 1; shk >= 1 && seen < max_after; shk--)
            {
             const datetime bt = iTime(_Symbol, PERIOD_M30, shk);
             if(bt <= t1)
