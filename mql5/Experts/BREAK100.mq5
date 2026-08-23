@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.17"
-#property description "RES/SUP stay on the box. One Telegram ENTRY. Right-edge SL/TP. Live locked."
+#property version   "2.18"
+#property description "Simple SL/ENTRY/TP text to the right of candles. One Telegram ENTRY. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -1047,7 +1047,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.17  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.18  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -1751,7 +1751,7 @@ void B100LevelRay(const string name, const datetime t0, const datetime t1, const
    ObjectSetString(0, name, OBJPROP_TOOLTIP, caption + " " + DoubleToString(price, _Digits));
   }
 
-void B100RightPriceLabel(const string name, const double price, const string text, const color clr, int &used_y[], int &n_used)
+void B100LevelTag(const string name, const datetime t, const double price, const string text, const color clr)
   {
    if(price <= 0.0 || text == "")
      {
@@ -1759,56 +1759,31 @@ void B100RightPriceLabel(const string name, const double price, const string tex
       return;
      }
    if(ObjectFind(0, name) >= 0 &&
-      (ENUM_OBJECT)ObjectGetInteger(0, name, OBJPROP_TYPE) != OBJ_LABEL)
+      (ENUM_OBJECT)ObjectGetInteger(0, name, OBJPROP_TYPE) != OBJ_TEXT)
       ObjectDelete(0, name);
-   int px = 0, py = 20;
-   const datetime tnow = iTime(_Symbol, PERIOD_CURRENT, 0);
-   if(!ChartTimePriceToXY(0, 0, (tnow > 0 ? tnow : TimeCurrent()), price, px, py))
-      py = 24;
-   py -= 7;
-   if(py < 72)
-      py = 72;
-   for(int k = 0; k < 8; k++)
-     {
-      bool hit = false;
-      for(int i = 0; i < n_used; i++)
-        {
-         if(MathAbs(py - used_y[i]) < 16)
-           {
-            py = used_y[i] + 16;
-            hit = true;
-            break;
-           }
-        }
-      if(!hit)
-         break;
-     }
-   const int ch = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
-   if(ch > 20 && py > ch - 16)
-      py = ch - 16;
-   if(n_used < ArraySize(used_y))
-      used_y[n_used++] = py;
+   datetime tx = t;
+   if(tx == 0)
+      tx = TimeCurrent() + 3 * PeriodSeconds(PERIOD_CURRENT);
    if(ObjectFind(0, name) < 0)
-      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - 12);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, py);
-   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 8);
+      ObjectCreate(0, name, OBJ_TEXT, 0, tx, price);
+   ObjectSetInteger(0, name, OBJPROP_TIME, 0, tx);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, 0, price);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
    ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 8);
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_LEFT);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
    ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
   }
 
-void B100PaintOneLevel(const string ray, const string tag, const datetime t0, const datetime t1,
-                       const double price, const string label, const color clr, int &used_y[], int &n_used)
+void B100PaintOneLevel(const string ray, const string tag, const datetime t0, const datetime t1, const datetime tx,
+                       const double price, const string label, const color clr)
   {
    B100LevelRay(ray, t0, t1, price, clr, label);
    if(price > 0.0)
-      B100RightPriceLabel(tag, price, label + "  " + DoubleToString(price, _Digits), clr, used_y, n_used);
+      B100LevelTag(tag, tx, price, label + "  " + DoubleToString(price, _Digits), clr);
   }
 
 void B100PaintLevels()
@@ -1863,14 +1838,13 @@ void B100PaintLevels()
    datetime tb = iTime(_Symbol, PERIOD_CURRENT, 0);
    if(tb <= ta)
       tb = ta + PeriodSeconds(PERIOD_CURRENT);
+   datetime tx = tb + 3 * PeriodSeconds(PERIOD_CURRENT);
 
-   int used_y[8];
-   int n_used = 0;
-   B100PaintOneLevel(LV_ENTRY, LV_ENTRY_L, ta, tb, en, "ENTRY", clrSilver, used_y, n_used);
-   B100PaintOneLevel(LV_SL,    LV_SL_L,    ta, tb, sl, "SL",    CLR_ARR_SELL, used_y, n_used);
-   B100PaintOneLevel(LV_TP1,   LV_TP1_L,   ta, tb, p1, "TP1",   CLR_ARR_BUY, used_y, n_used);
-   B100PaintOneLevel(LV_TP2,   LV_TP2_L,   ta, tb, p2, "TP2",   C'40,180,140', used_y, n_used);
-   B100PaintOneLevel(LV_TP3,   LV_TP3_L,   ta, tb, p3, "TP3",   C'30,140,110', used_y, n_used);
+   B100PaintOneLevel(LV_ENTRY, LV_ENTRY_L, ta, tb, tx, en, "ENTRY", clrSilver);
+   B100PaintOneLevel(LV_SL,    LV_SL_L,    ta, tb, tx, sl, "SL",    CLR_ARR_SELL);
+   B100PaintOneLevel(LV_TP1,   LV_TP1_L,   ta, tb, tx, p1, "TP1",   CLR_ARR_BUY);
+   B100PaintOneLevel(LV_TP2,   LV_TP2_L,   ta, tb, tx, p2, "TP2",   C'40,180,140');
+   B100PaintOneLevel(LV_TP3,   LV_TP3_L,   ta, tb, tx, p3, "TP3",   C'30,140,110');
    ChartRedraw(0);
   }
 
