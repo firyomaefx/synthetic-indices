@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.12"
-#property description "Wick high/low boxes. Smaller arrows. HUD no overlap. OCO. Live locked."
+#property version   "2.13"
+#property description "HUD stacked. Wick high/low boxes. Half-size arrows. OCO. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -101,6 +101,7 @@ input bool           InpHarvestRects   = true;         // Save your drawn rectan
 #define CLR_SELL     C'214,64,64'
 #define CLR_ARR_BUY  C'80,255,180'
 #define CLR_ARR_SELL C'255,80,220'
+#define B100_ARROW_FS 8
 
 struct B100Levels
   {
@@ -178,13 +179,16 @@ int             g_human_n    = 0;
 
 void B100PaintBox();
 void B100PaintHud();
+int  B100TextPx(const string font, const int fs_pt, const string text, int &out_w);
+void B100HudLabel(const string name, const int x, const int y, const int fs,
+                  const string font, const color clr, const string text);
 void B100ApplyChartSkin();
 void B100RestoreChartSkin();
 void B100MarkBoxSignal(const int dir, const double price, datetime when = 0);
 void B100ReplayJournalMarks();
 void B100RescaleJournalMarks();
 int  B100JournalWidth();
-void B100HarvestHumanBoxes(const bool snap_wicks = false);
+void B100HarvestHumanBoxes();
 int  B100Pts(const double a, const double b);
 string B100Px(const double x);
 void B100FillSlTpFallback(const int dir, const double px, double &sl, double &tp1, double &tp2, double &tp3);
@@ -298,7 +302,7 @@ int OnInit()
    B100PaintPanel();
    ChartSetInteger(0, CHART_EVENT_OBJECT_CREATE, true);
    ChartSetInteger(0, CHART_EVENT_OBJECT_DELETE, true);
-   B100HarvestHumanBoxes(true);
+   B100HarvestHumanBoxes();
    EventSetTimer(60);
    B100MaybeStatus();
    return INIT_SUCCEEDED;
@@ -307,7 +311,7 @@ int OnInit()
 void OnTimer()
   {
    B100CaptureHeartbeat(g_capture);
-   B100HarvestHumanBoxes(true);
+   B100HarvestHumanBoxes();
    B100MaybeStatus();
   }
 
@@ -1022,7 +1026,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.12  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.13  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -1587,7 +1591,7 @@ void B100MarkEvent(const string labeled, const double price)
      }
    ObjectSetInteger(0, name, OBJPROP_ARROWCODE, code);
    ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
-   ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
    ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
    ObjectSetString(0, name, OBJPROP_TOOLTIP,
@@ -2011,19 +2015,20 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when)
       return;
    const datetime t = (when > 0) ? when : TimeCurrent();
    const int step = PeriodSeconds(PERIOD_M30);
-   const datetime t0 = t - 2 * step;
+   const datetime t0 = t - step;
    const string id = IntegerToString((int)(when > 0 ? when : (g_box.armed_bar > 0 ? g_box.armed_bar : t)));
    const string arr = "B100_jn_arr_" + id;
    const string ln  = "B100_jn_ln_" + id;
    const color clr = (dir > 0) ? CLR_ARR_BUY : CLR_ARR_SELL;
-   const int w = MathMax(1, B100JournalWidth());
+   const string glyph = CharToString((uchar)((dir > 0) ? 233 : 234));
 
    if(ObjectFind(0, arr) >= 0)
       ObjectDelete(0, arr);
-   ObjectCreate(0, arr, OBJ_ARROW, 0, t, price);
-   ObjectSetInteger(0, arr, OBJPROP_ARROWCODE, (dir > 0) ? 233 : 234);
+   ObjectCreate(0, arr, OBJ_TEXT, 0, t, price);
+   ObjectSetString(0, arr, OBJPROP_FONT, "Wingdings");
+   ObjectSetInteger(0, arr, OBJPROP_FONTSIZE, B100_ARROW_FS);
+   ObjectSetString(0, arr, OBJPROP_TEXT, glyph);
    ObjectSetInteger(0, arr, OBJPROP_COLOR, clr);
-   ObjectSetInteger(0, arr, OBJPROP_WIDTH, w);
    ObjectSetInteger(0, arr, OBJPROP_ANCHOR, (dir > 0) ? ANCHOR_TOP : ANCHOR_BOTTOM);
    ObjectSetInteger(0, arr, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, arr, OBJPROP_HIDDEN, false);
@@ -2038,7 +2043,7 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when)
    ObjectCreate(0, ln, OBJ_TREND, 0, t0, price, t, price);
    ObjectSetInteger(0, ln, OBJPROP_COLOR, clr);
    ObjectSetInteger(0, ln, OBJPROP_STYLE, STYLE_SOLID);
-   ObjectSetInteger(0, ln, OBJPROP_WIDTH, w);
+   ObjectSetInteger(0, ln, OBJPROP_WIDTH, 1);
    ObjectSetInteger(0, ln, OBJPROP_RAY_RIGHT, false);
    ObjectSetInteger(0, ln, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, ln, OBJPROP_HIDDEN, false);
@@ -2046,7 +2051,8 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when)
    ObjectSetInteger(0, ln, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
    Print("B100 arrow ", (dir > 0 ? "BUY" : "SELL"),
          "  ", TimeToString(t, TIME_DATE | TIME_MINUTES),
-         "  ", DoubleToString(price, _Digits));
+         "  ", DoubleToString(price, _Digits),
+         "  fs=", B100_ARROW_FS);
    ChartRedraw(0);
   }
 
@@ -2060,14 +2066,18 @@ int B100JournalWidth()
 
 void B100RescaleJournalMarks()
   {
-   const int w = B100JournalWidth();
    const int n = ObjectsTotal(0, -1, -1);
    for(int i = 0; i < n; i++)
      {
       const string name = ObjectName(0, i, -1, -1);
-      if(StringFind(name, "B100_jn_arr_") != 0 && StringFind(name, "B100_jn_ln_") != 0)
-         continue;
-      ObjectSetInteger(0, name, OBJPROP_WIDTH, w);
+      if(StringFind(name, "B100_jn_arr_") == 0)
+        {
+         if((ENUM_OBJECT)ObjectGetInteger(0, name, OBJPROP_TYPE) != OBJ_TEXT)
+            continue;
+         ObjectSetInteger(0, name, OBJPROP_FONTSIZE, B100_ARROW_FS);
+        }
+      else if(StringFind(name, "B100_jn_ln_") == 0)
+         ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
      }
    ChartRedraw(0);
   }
@@ -2079,7 +2089,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
    if(id == CHARTEVENT_OBJECT_CREATE || id == CHARTEVENT_OBJECT_CHANGE ||
       id == CHARTEVENT_OBJECT_DRAG || id == CHARTEVENT_OBJECT_DELETE ||
       id == CHARTEVENT_OBJECT_ENDEDIT)
-      B100HarvestHumanBoxes(id == CHARTEVENT_OBJECT_ENDEDIT);
+      B100HarvestHumanBoxes();
   }
 
 bool B100IsEaRect(const string name)
@@ -2091,16 +2101,23 @@ bool B100IsEaRect(const string name)
    return false;
   }
 
-void B100HarvestHumanBoxes(const bool snap_wicks)
+void B100HarvestHumanBoxes()
   {
    if(!InpHarvestRects)
       return;
+   static bool s_busy = false;
+   if(s_busy)
+      return;
+   s_busy = true;
    string sym = _Symbol;
    StringReplace(sym, " ", "_");
    const int fh = FileOpen("BREAK100_human_box_" + sym + ".csv",
                            FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON, ',');
    if(fh == INVALID_HANDLE)
+     {
+      s_busy = false;
       return;
+     }
    FileWrite(fh, "name", "t_left", "t_right", "high", "low", "bars", "height", "h_vs_h4", "overlap_ea",
             "after_dir", "after_bars", "after_size", "after_vs_box");
    ObjectsDeleteAll(0, "B100H_ok_");
@@ -2148,7 +2165,11 @@ void B100HarvestHumanBoxes(const bool snap_wicks)
             lo = wlo;
             t0 = iTime(_Symbol, PERIOD_M30, a);
             t1 = iTime(_Symbol, PERIOD_M30, z);
-            if(snap_wicks)
+            const datetime ot0 = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME, 0);
+            const datetime ot1 = (datetime)ObjectGetInteger(0, name, OBJPROP_TIME, 1);
+            const double op0 = ObjectGetDouble(0, name, OBJPROP_PRICE, 0);
+            const double op1 = ObjectGetDouble(0, name, OBJPROP_PRICE, 1);
+            if(ot0 != t0 || ot1 != t1 || MathAbs(op0 - hi) > _Point || MathAbs(op1 - lo) > _Point)
               {
                ObjectSetInteger(0, name, OBJPROP_TIME, 0, t0);
                ObjectSetInteger(0, name, OBJPROP_TIME, 1, t1);
@@ -2271,13 +2292,50 @@ void B100HarvestHumanBoxes(const bool snap_wicks)
      }
    else
       g_human_n = kept;
+   s_busy = false;
    B100PaintHud();
+  }
+
+int B100TextPx(const string font, const int fs_pt, const string text, int &out_w)
+  {
+   out_w = 0;
+   if(text == "")
+      return 0;
+   uint w = 0, h = 0;
+   TextSetFont(font, fs_pt * 10);
+   if(TextGetSize(text, w, h) && h > 0)
+     {
+      out_w = (int)w;
+      return (int)h;
+     }
+   out_w = (int)StringLen(text) * MathMax(6, fs_pt);
+   return (fs_pt >= 14) ? 32 : 18;
+  }
+
+void B100HudLabel(const string name, const int x, const int y, const int fs,
+                  const string font, const color clr, const string text)
+  {
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fs);
+   ObjectSetString(0, name, OBJPROP_FONT, font);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
   }
 
 void B100PaintHud()
   {
    const int x = 14;
    const int y = 16;
+   const int pad = 8;
+   const int x_text = x + 16;
+   const string font = "Georgia";
    const bool armed = (InpStrategy == B100_STRAT_BOX_M30 && g_box.ready && g_box.state == B100_BOX_ARMED);
    string sub = "";
    if(g_levels.valid)
@@ -2286,25 +2344,7 @@ void B100PaintHud()
       sub = "BUY " + DoubleToString(g_box.buy_stop, _Digits) + "  SELL " + DoubleToString(g_box.sell_stop, _Digits);
    const bool has_sub = (sub != "");
    const bool has_hum = (g_human_n > 0);
-   int h = 44;
-   if(has_sub)
-      h += 16;
-   if(has_hum)
-      h += 16;
-   if(ObjectFind(0, HUD_BG) < 0)
-      ObjectCreate(0, HUD_BG, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, HUD_BG, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, HUD_BG, OBJPROP_XDISTANCE, x);
-   ObjectSetInteger(0, HUD_BG, OBJPROP_YDISTANCE, y);
-   ObjectSetInteger(0, HUD_BG, OBJPROP_XSIZE, 168);
-   ObjectSetInteger(0, HUD_BG, OBJPROP_YSIZE, h);
-   ObjectSetInteger(0, HUD_BG, OBJPROP_BGCOLOR, CLR_HUD);
-   ObjectSetInteger(0, HUD_BG, OBJPROP_COLOR, C'42,46,56');
-   ObjectSetInteger(0, HUD_BG, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-   ObjectSetInteger(0, HUD_BG, OBJPROP_WIDTH, 1);
-   ObjectSetInteger(0, HUD_BG, OBJPROP_BACK, false);
-   ObjectSetInteger(0, HUD_BG, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, HUD_BG, OBJPROP_HIDDEN, true);
+   const string hum = has_hum ? ("HUMAN " + IntegerToString(g_human_n) + " saved") : "";
 
    color clr = C'168,164,154';
    if(g_signal == "BUY") clr = CLR_BUY;
@@ -2313,46 +2353,52 @@ void B100PaintHud()
    else if(g_signal == "WATCH" || g_signal == "HOLD") clr = C'184,179,168';
    else if(g_signal == "STAND_DOWN") clr = CLR_SELL;
 
-   if(ObjectFind(0, LBL_SIG) < 0)
-      ObjectCreate(0, LBL_SIG, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, LBL_SIG, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, LBL_SIG, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
-   ObjectSetInteger(0, LBL_SIG, OBJPROP_XDISTANCE, x + 16);
-   ObjectSetInteger(0, LBL_SIG, OBJPROP_YDISTANCE, y + 8);
-   ObjectSetInteger(0, LBL_SIG, OBJPROP_FONTSIZE, 16);
-   ObjectSetString(0, LBL_SIG, OBJPROP_FONT, "Georgia");
-   ObjectSetInteger(0, LBL_SIG, OBJPROP_COLOR, clr);
-   ObjectSetInteger(0, LBL_SIG, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, LBL_SIG, OBJPROP_HIDDEN, true);
-   ObjectSetString(0, LBL_SIG, OBJPROP_TEXT, g_signal);
+   int cy = y + pad;
+   int max_w = 120;
+   int tw = 0;
+   int th = B100TextPx(font, 16, g_signal, tw);
+   if(tw > max_w) max_w = tw;
+   B100HudLabel(LBL_SIG, x_text, cy, 16, font, clr, g_signal);
+   cy += MathMax(th, 32) + pad;
 
-   if(ObjectFind(0, LBL_LV) < 0)
-      ObjectCreate(0, LBL_LV, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, LBL_LV, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, LBL_LV, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
-   ObjectSetInteger(0, LBL_LV, OBJPROP_XDISTANCE, x + 16);
-   ObjectSetInteger(0, LBL_LV, OBJPROP_YDISTANCE, y + 30);
-   ObjectSetInteger(0, LBL_LV, OBJPROP_FONTSIZE, 9);
-   ObjectSetString(0, LBL_LV, OBJPROP_FONT, "Georgia");
-   ObjectSetInteger(0, LBL_LV, OBJPROP_COLOR, C'140,136,128');
-   ObjectSetInteger(0, LBL_LV, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, LBL_LV, OBJPROP_HIDDEN, true);
-   ObjectSetString(0, LBL_LV, OBJPROP_TEXT, sub);
+   if(has_sub)
+     {
+      th = B100TextPx(font, 9, sub, tw);
+      if(tw > max_w) max_w = tw;
+      B100HudLabel(LBL_LV, x_text, cy, 9, font, C'140,136,128', sub);
+      cy += MathMax(th, 18) + 6;
+     }
+   else
+      B100HudLabel(LBL_LV, x_text, cy, 9, font, C'140,136,128', "");
 
-   string hum = has_hum ? ("HUMAN " + IntegerToString(g_human_n) + " saved") : "";
-   const int y_hum = has_sub ? (y + 48) : (y + 36);
-   if(ObjectFind(0, LBL_HUM) < 0)
-      ObjectCreate(0, LBL_HUM, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, LBL_HUM, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, LBL_HUM, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
-   ObjectSetInteger(0, LBL_HUM, OBJPROP_XDISTANCE, x + 16);
-   ObjectSetInteger(0, LBL_HUM, OBJPROP_YDISTANCE, y_hum);
-   ObjectSetInteger(0, LBL_HUM, OBJPROP_FONTSIZE, 9);
-   ObjectSetString(0, LBL_HUM, OBJPROP_FONT, "Georgia");
-   ObjectSetInteger(0, LBL_HUM, OBJPROP_COLOR, CLR_ARR_BUY);
-   ObjectSetInteger(0, LBL_HUM, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, LBL_HUM, OBJPROP_HIDDEN, true);
-   ObjectSetString(0, LBL_HUM, OBJPROP_TEXT, hum);
+   if(has_hum)
+     {
+      th = B100TextPx(font, 9, hum, tw);
+      if(tw > max_w) max_w = tw;
+      B100HudLabel(LBL_HUM, x_text, cy, 9, font, CLR_ARR_BUY, hum);
+      cy += MathMax(th, 18) + 6;
+     }
+   else
+      B100HudLabel(LBL_HUM, x_text, cy, 9, font, CLR_ARR_BUY, "");
+
+   int box_w = max_w + 36;
+   if(box_w < 168)
+      box_w = 168;
+   const int h = cy - y + pad;
+   if(ObjectFind(0, HUD_BG) < 0)
+      ObjectCreate(0, HUD_BG, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_XDISTANCE, x);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_YDISTANCE, y);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_XSIZE, box_w);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_YSIZE, h);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_BGCOLOR, CLR_HUD);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_COLOR, C'42,46,56');
+   ObjectSetInteger(0, HUD_BG, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_WIDTH, 1);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_BACK, false);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, HUD_BG, OBJPROP_HIDDEN, true);
   }
 
 void B100PaintPanel()
