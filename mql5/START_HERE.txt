@@ -1,4 +1,4 @@
-BREAK100 v2.11 — START HERE
+BREAK100 v2.13 — START HERE
 ===========================
 
 What this is
@@ -9,7 +9,9 @@ What this is
 
 Human boxes
   On M30 draw Insert → Objects → Rectangle over the pause (before the big candle).
-  You should see **saved UP** or **saved DN** (the big move after the box) and HUD **HUMAN n**.
+  The EA snaps your rectangle to M30 wick high/low (shadows), not open/close. Off-by-a-bit is OK.
+  HUD: WAIT on row 1, HUMAN n saved on the next row (never overlapping).
+  You should see **saved UP** or **saved DN** (the big move after the box).
   EA writes Common\\Files\\BREAK100_human_box_BREAK100.csv. Not B100_* names (those are EA).
 
 Attach
