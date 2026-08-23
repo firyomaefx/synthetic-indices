@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.13"
-#property description "HUD stacked. Wick high/low boxes. Half-size arrows. OCO. Live locked."
+#property version   "2.14"
+#property description "WATCH arrows on armed box. Fill arrow on break. HUD stacked. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -89,6 +89,9 @@ input bool           InpHarvestRects   = true;         // Save your drawn rectan
 #define BOX_SELL   "B100_box_sellstop"
 #define BOX_RES_LBL "B100_box_res_lbl"
 #define BOX_SUP_LBL "B100_box_sup_lbl"
+#define BOX_ARR_BUY "B100_box_arr_buy"
+#define BOX_ARR_SELL "B100_box_arr_sell"
+#define BOX_WATCH_L "B100_box_watch"
 #define HUD_BG     "B100_hud_bg"
 
 #define CLR_INK      C'11,13,18'
@@ -178,6 +181,9 @@ bool            g_old_show_grid, g_old_show_vol, g_old_show_ohlc, g_old_show_ask
 int             g_human_n    = 0;
 
 void B100PaintBox();
+void B100WatchGlyph(const string name, const datetime t, const double price,
+                    const int code, const color clr, const ENUM_ANCHOR_POINT anc, const string tip);
+void B100HideWatchMarks();
 void B100PaintHud();
 int  B100TextPx(const string font, const int fs_pt, const string text, int &out_w);
 void B100HudLabel(const string name, const int x, const int y, const int fs,
@@ -1026,7 +1032,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.13  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.14  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -1861,6 +1867,40 @@ void B100BoxTag(const string name, const datetime t, const double price, const s
    ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_PERIOD_M30);
   }
 
+void B100HideWatchMarks()
+  {
+   ObjectSetInteger(0, BOX_ARR_BUY,  OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, BOX_ARR_SELL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+   ObjectSetInteger(0, BOX_WATCH_L,  OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+  }
+
+void B100WatchGlyph(const string name, const datetime t, const double price,
+                    const int code, const color clr, const ENUM_ANCHOR_POINT anc, const string tip)
+  {
+   if(t == 0 || price <= 0.0)
+     {
+      ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      return;
+     }
+   if(ObjectFind(0, name) >= 0 &&
+      (ENUM_OBJECT)ObjectGetInteger(0, name, OBJPROP_TYPE) != OBJ_TEXT)
+      ObjectDelete(0, name);
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_TEXT, 0, t, price);
+   ObjectSetInteger(0, name, OBJPROP_TIME, 0, t);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, 0, price);
+   ObjectSetString(0, name, OBJPROP_FONT, "Wingdings");
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, B100_ARROW_FS);
+   ObjectSetString(0, name, OBJPROP_TEXT, CharToString((uchar)code));
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_ANCHOR, anc);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_HIDDEN, false);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_PERIOD_M30);
+   ObjectSetString(0, name, OBJPROP_TOOLTIP, tip);
+  }
+
 void B100PaintBox()
   {
    static int last_hist = -1;
@@ -1870,10 +1910,16 @@ void B100PaintBox()
       last_hist = g_box.hist_n;
      }
    if(InpStrategy != B100_STRAT_BOX_M30)
+     {
+      B100HideWatchMarks();
       return;
+     }
    // Keep the last zone on the chart after fill (SCAN). Hide only if we never had a box.
    if(g_box.t_left == 0 || g_box.high == 0.0 || g_box.low == 0.0)
+     {
+      B100HideWatchMarks();
       return;
+     }
    const datetime t1 = (g_box.t_right > 0) ? g_box.t_right + PeriodSeconds(PERIOD_M30) : TimeCurrent();
    const datetime t0 = (g_box.t_left > 0) ? g_box.t_left : iTime(_Symbol, PERIOD_M30, 4);
    if(ObjectFind(0, BOX_RECT) < 0)
@@ -1898,11 +1944,22 @@ void B100PaintBox()
      {
       B100BoxRail(BOX_BUY,  t0, t1, g_box.buy_stop,  CLR_BUY,  2);
       B100BoxRail(BOX_SELL, t0, t1, g_box.sell_stop, CLR_SELL, 2);
+      if(InpDrawArrows)
+        {
+         B100WatchGlyph(BOX_ARR_BUY,  t1, g_box.buy_stop,  233, CLR_ARR_BUY,  ANCHOR_LOWER,
+                        "WATCH BUY STOP  (not a fill)");
+         B100WatchGlyph(BOX_ARR_SELL, t1, g_box.sell_stop, 234, CLR_ARR_SELL, ANCHOR_UPPER,
+                        "WATCH SELL STOP  (not a fill)");
+         B100BoxTag(BOX_WATCH_L, t1, 0.5 * (g_box.high + g_box.low), "WATCH", C'184,179,168', ANCHOR_LEFT);
+        }
+      else
+         B100HideWatchMarks();
      }
    else
      {
       ObjectSetInteger(0, BOX_BUY,  OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
       ObjectSetInteger(0, BOX_SELL, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      B100HideWatchMarks();
      }
    B100BoxTag(BOX_RES_LBL, t0, g_box.high, "RES", CLR_RES, ANCHOR_LEFT_LOWER);
    B100BoxTag(BOX_SUP_LBL, t0, g_box.low,  "SUP", CLR_SUP, ANCHOR_LEFT_UPPER);
