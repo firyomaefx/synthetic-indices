@@ -2,7 +2,7 @@
 
 M30 box-breakout expert for **BREAK100** (Boom-class synthetic) on MetaTrader 5.
 
-**EA v2.13** · chart **M30 only** · live orders **locked** · **not a profit claim**
+**EA v2.14** · chart **M30 only** · live orders **locked** · **not a profit claim**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled in source)`
 
@@ -119,7 +119,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.13) |
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.14) |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
@@ -138,6 +138,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **2.14** | Armed auto box shows WATCH arrows on both stops (not a fill). Mint/magenta fill arrow + Alert only on M30 close outside. |
 | **2.13** | HUD rows measured (WAIT then HUMAN never overlap). Drawn boxes snap to M30 wick high/low. Arrows half size (Wingdings 8pt). |
 | **2.12** | Wick snap on harvest; journal width 1 |
 | **2.11** | HUD: WAIT and HUMAN n on separate rows (no overlap) |
