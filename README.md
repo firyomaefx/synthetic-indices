@@ -14,7 +14,7 @@ This repo is the BREAK100 system used on a **Windows desktop MT5** chart.
 
 It does **not** fade a range. It waits for a **tight M30 pause** (a box), watches **both sides**, and trades the **break**. First fill cancels the other stop (OCO). After fill, the chart shows dotted **SL / ENTRY / TP1 / TP2 / TP3** lines with the price on each line.
 
-**Telegram** (M30 chart only) sends WATCH / ENTRY / TP / SL as replies on that day’s signal. A short emoji **status** goes out every 6 hours.
+**Telegram** (M30 chart only) sends WATCH / ENTRY / TP / SL as replies on that day's signal. A short emoji **status** goes out every 6 hours.
 
 **Real** accounts are for ticks and capture. **DEMO_AUTO** may place pending stops on a **demo** login only. **LIVE is rejected** in the source. AutoTrading stays **OFF** on a real account.
 
