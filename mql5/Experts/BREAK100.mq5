@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.03"
-#property description "Both-side arrows; RL gate is DEMO-only. Hide rays after exit. Live locked."
+#property version   "2.04"
+#property description "OCO both sides: first fill cancels the other. RL does not drop a side. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -49,7 +49,7 @@ input double         InpTp2R           = 2.0;          // TP2 in R
 input double         InpTp3R           = 3.0;          // TP3 in R
 
 input bool           InpUseLearner     = true;         // Dynamic SL/TP + direction from closed labels
-input bool           InpDirLearner     = true;         // RL may SKIP / BUY-only / SELL-only / OCO
+input bool           InpDirLearner     = true;         // RL SL/TP only — OCO always both sides
 input int            InpTrainHorizon   = 12;           // M30 bars to measure MFE/MAE after fill
 input bool           InpTrainLog       = true;         // Write BREAK100_train_*.csv (quality gated)
 input bool           InpShadowLedger   = true;         // Virtual fills in SHADOW
@@ -383,26 +383,16 @@ void OnTick()
                               InpBoxAtrPeriod, InpBoxH4Frac, InpBoxWiden, InpImpulseK, InpBoxTimeout, bid, ask);
       if(g_box.just_armed)
         {
-         string gate = "BOTH";
-         if(InpUseLearner && InpDirLearner)
-           {
+         if(InpUseLearner)
             B100LearnerPolicy(g_learner, 0, g_policy);
-            gate = g_policy.dir_gate;
-           }
-         B100SanitizeDirGate(g_policy);
-         gate = g_policy.dir_gate;
-         B100BoxApplyDirGate(g_box, gate);
+         B100BoxApplyDirGate(g_box, "BOTH");
          B100CaptureSetup(g_capture, g_box, bid, ask);
          if(InpTrainLog)
             B100TrainArm(g_episode, g_box, bid, ask, g_learner.last_arm);
          arm_now = true;
-         if(gate == "SKIP")
-            Print("BREAK100 RL SKIP demo only  chart still both  p_fail=",
-                  DoubleToString(g_policy.p_fail, 2), " n=", g_policy.n);
-         else if(gate != "BOTH")
-            Print("BREAK100 RL demo gate=", gate,
-                  "  chart both  p_up=", DoubleToString(g_policy.p_up, 2),
-                  " p_dn=", DoubleToString(g_policy.p_dn, 2));
+         Print("BREAK100 OCO both sides  BUY ", DoubleToString(g_box.buy_stop, _Digits),
+               "  SELL ", DoubleToString(g_box.sell_stop, _Digits),
+               "  (RL SL/TP only, gate logged=", g_policy.dir_gate, ")");
          g_box.just_armed = false;
         }
       if(labeled != "")
@@ -768,9 +758,9 @@ void B100TelegramWatch(void)
       msg += "   TP1 " + B100Px(g_oco_tp_sell) + "\n";
      }
    if(g_oco_buy_px > 0.0 && g_oco_sell_px > 0.0)
-      msg += "First fill cancels the other.";
+      msg += "OCO: first fill cancels the other.";
    else
-      msg += "RL one-side stop.";
+      msg += "One-side stop.";
    if(!InpTelegram || !B100TgChart())
       return;
    const long id = B100TelegramOnceReply(key, msg, 0);
@@ -1026,7 +1016,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.03  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.04  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -1087,19 +1077,13 @@ void B100ArmBoxOco(const double bid, const double ask)
    if(B100CountMagicPositions() > 0)
       return;
 
-   bool want_buy  = g_box.buy_stop > 0.0;
-   bool want_sell = g_box.sell_stop > 0.0;
-   if(B100BrokerOrderIntentPermitted(g_mode))
+   const bool want_buy  = g_box.buy_stop > 0.0;
+   const bool want_sell = g_box.sell_stop > 0.0;
+   if(!want_buy || !want_sell)
      {
-      if(g_box.dir_gate == "SKIP")
-         return;
-      if(g_box.dir_gate == "BUY")
-         want_sell = false;
-      if(g_box.dir_gate == "SELL")
-         want_buy = false;
-     }
-   if(!want_buy && !want_sell)
+      Print("B100 OCO skip — need both stops");
       return;
+     }
 
    double buy_px = 0, sl_buy = 0, tp_buy = 0, sell_px = 0, sl_sell = 0, tp_sell = 0;
    if(want_buy)
@@ -1201,7 +1185,7 @@ void B100ArmBoxOco(const double bid, const double ask)
 
    B100FibClear();
    B100TelegramWatch();
-   Print("B100 OCO armed gate=", g_box.dir_gate,
+   Print("B100 OCO armed BOTH  first fill cancels the other  gate_log=", g_box.dir_gate,
          " BUY ", DoubleToString(buy_px, _Digits),
          "  SELL ", DoubleToString(sell_px, _Digits),
          "  lots=", DoubleToString(lots, 2),

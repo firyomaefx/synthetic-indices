@@ -18,7 +18,7 @@ github.com/firyomaefx/synthetic-indices
 | Web Grok | Edit sources, rewrite docs | Touch your MT5, press F7 |
 | Laptop Grok | `git pull`, copy into `%APPDATA%\MetaQuotes`, compile | See web files until you pull |
 
-Current EA on the laptop: **v2.03**. Chart: **BREAK100 M30**. Live locked.
+Current EA on the laptop: **v2.04**. Chart: **BREAK100 M30**. Live locked.
 
 ## Laptop — first run
 

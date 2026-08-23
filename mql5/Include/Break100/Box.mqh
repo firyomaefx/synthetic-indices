@@ -429,12 +429,6 @@ string B100BoxWatchNote(const B100Box &b, const double mid)
   {
    if(b.state != B100_BOX_ARMED || !b.ready)
       return "scanning for an M30 pause (3–8 overlapping bars inside H4)";
-   if(b.dir_gate == "BUY")
-      return "chart BOTH  demo BUY-only  BUY " + DoubleToString(b.buy_stop, _Digits) +
-             "  SELL " + DoubleToString(b.sell_stop, _Digits);
-   if(b.dir_gate == "SELL")
-      return "chart BOTH  demo SELL-only  BUY " + DoubleToString(b.buy_stop, _Digits) +
-             "  SELL " + DoubleToString(b.sell_stop, _Digits);
    string ph = b.phase;
    if(ph == "IMPULSE_THEN_RANGE")
       ph = (b.imp_dir > 0 ? "after UP impulse" : "after DN impulse");
