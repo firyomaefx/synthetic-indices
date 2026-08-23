@@ -1,5 +1,5 @@
 #property copyright "BREAK100"
-#property version   "1.96"
+#property version   "1.97"
 #property description "Range-then-break + optional impulse-then-range. M30 Telegram. Live locked."
 
 #include <Break100/Channel.mqh>
@@ -923,44 +923,58 @@ void B100TelegramStatus(void)
    string last_m30 = "-";
    if(g_capture.last_bar_time[3] > 0)
       last_m30 = TimeToString(g_capture.last_bar_time[3], TIME_DATE | TIME_MINUTES);
-   string box_line = "scanning";
-   if(g_box.ready && g_box.state == B100_BOX_ARMED)
-      box_line = "WATCH BUY " + DoubleToString(g_box.buy_stop, _Digits) +
-                 "  SELL " + DoubleToString(g_box.sell_stop, _Digits);
-   else if(g_last_event != "")
-      box_line = "last " + g_last_event;
-   else if(g_signal != "")
-      box_line = g_signal;
 
-   string msg = "📊 BREAK100  status  " + _Symbol + "\n";
-   msg += "gmt " + TimeToString(TimeGMT(), TIME_DATE | TIME_MINUTES) + "\n";
-   msg += "mode " + B100ModeName(g_mode.mode);
-   msg += "  health " + (g_mode.health == B100_HEALTHY ? "HEALTHY" : "FAULT");
-   msg += "  telegram " + (g_tg_ok && InpTelegram ? "ON" : "OFF") + "\n";
-   msg += "capture ticks=" + IntegerToString((int)g_capture.tick_count);
-   msg += "  written=" + IntegerToString((int)g_capture.tick_written) + "\n";
-   msg += "  setup=" + IntegerToString((int)g_capture.setup_n);
-   msg += "  outcome=" + IntegerToString((int)g_capture.outcome_n);
-   msg += "  last M30=" + last_m30 + "\n";
-   msg += "train " + (g_episode.tracking ? "PATH" : (g_episode.active ? "ARMED" : "idle"));
-   msg += "  q=" + IntegerToString(g_episode.quality);
-   msg += "  " + g_episode.q_reason + "\n";
-   msg += "learner n=" + IntegerToString(g_learner.n) + "/" + IntegerToString(B100_LEARN_MAX);
-   msg += "  policy=" + (g_policy.source == "" ? "none" : g_policy.source) + "\n";
-   msg += "  arm=" + (g_policy.arm_id == "" ? "-" : g_policy.arm_id);
-   msg += "  gate=" + (g_policy.dir_gate == "" ? "BOTH" : g_policy.dir_gate);
-   msg += "  p=" + DoubleToString(g_policy.p_up, 2) + "/" +
-          DoubleToString(g_policy.p_dn, 2) + "/" + DoubleToString(g_policy.p_fail, 2);
-   msg += "  SL=" + DoubleToString(g_policy.sl_r, 2) + "R";
-   msg += "  TP=" + DoubleToString(g_policy.tp1_r, 2) + "/" +
-          DoubleToString(g_policy.tp2_r, 2) + "/" + DoubleToString(g_policy.tp3_r, 2) + "R\n";
-   msg += "offline policy file=" + (policy_file ? "yes" : "no") + "\n";
-   msg += "box session armed=" + IntegerToString(g_box.n_boxes);
-   msg += "  UP=" + IntegerToString(g_box.n_break_up);
-   msg += "  DN=" + IntegerToString(g_box.n_break_dn);
-   msg += "  fail=" + IntegerToString(g_box.n_fail) + "\n";
-   msg += "  " + box_line + "\n";
-   msg += "note: Observe/Shadow data job. No live orders. Not a profit claim.";
+   string last_box = "scanning";
+   if(g_box.ready && g_box.state == B100_BOX_ARMED)
+      last_box = "WATCH  BUY " + DoubleToString(g_box.buy_stop, _Digits) +
+                 "  SELL " + DoubleToString(g_box.sell_stop, _Digits);
+   else if(g_last_event == "CENSORED_OR_AMBIGUOUS")
+      last_box = "CENSORED (both sides / timeout)";
+   else if(g_last_event == "BREAKOUT_UP")
+      last_box = "UP fill";
+   else if(g_last_event == "BREAKOUT_DOWN")
+      last_box = "DN fill";
+   else if(g_last_event != "")
+      last_box = g_last_event;
+   else if(g_signal != "")
+      last_box = g_signal;
+
+   const string train = (g_episode.tracking ? "PATH" : (g_episode.active ? "ARMED" : "idle"));
+   const bool healthy = (g_mode.health == B100_HEALTHY);
+   const bool tg_on = (g_tg_ok && InpTelegram);
+   string qwhy = g_episode.q_reason;
+   StringReplace(qwhy, "_", " ");
+
+   string msg = "📊 BREAK100 status · " + _Symbol + "\n";
+   msg += "🕐 " + TimeToString(TimeGMT(), TIME_DATE | TIME_MINUTES) + " GMT\n\n";
+   msg += (healthy ? "✅" : "❌") + " Mode " + B100ModeName(g_mode.mode);
+   msg += " · " + (healthy ? "healthy" : "FAULT");
+   msg += " · Telegram " + (tg_on ? "ON" : "OFF") + "\n\n";
+   msg += "📥 Capture: " + IntegerToString((int)g_capture.tick_count) + " ticks";
+   msg += " · " + IntegerToString((int)g_capture.tick_written) + " saved\n";
+   msg += "📦 Setup " + IntegerToString((int)g_capture.setup_n);
+   msg += " · outcome " + IntegerToString((int)g_capture.outcome_n);
+   msg += " · last M30 " + last_m30 + "\n\n";
+   msg += "🧠 Train: " + train;
+   msg += " · q=" + IntegerToString(g_episode.quality);
+   if(qwhy != "")
+      msg += " (" + qwhy + ")";
+   msg += "\n🎯 Learner " + IntegerToString(g_learner.n) + "/" + IntegerToString(B100_LEARN_MAX);
+   msg += " · policy " + (g_policy.source == "" ? "none" : g_policy.source);
+   msg += " · arm " + (g_policy.arm_id == "" ? "-" : g_policy.arm_id) + "\n";
+   msg += "➡️ Gate " + (g_policy.dir_gate == "" ? "BOTH" : g_policy.dir_gate);
+   msg += " · p " + DoubleToString(g_policy.p_up, 2) + " / " +
+          DoubleToString(g_policy.p_dn, 2) + " / " + DoubleToString(g_policy.p_fail, 2) + "\n";
+   msg += "🛑 SL " + DoubleToString(g_policy.sl_r, 2) + "R";
+   msg += " · 🎯 TP " + DoubleToString(g_policy.tp1_r, 2) + " / " +
+          DoubleToString(g_policy.tp2_r, 2) + " / " + DoubleToString(g_policy.tp3_r, 2) + "R\n";
+   msg += "📁 Offline policy: " + (policy_file ? "yes" : "no") + "\n\n";
+   msg += "📦 Box: " + IntegerToString(g_box.n_boxes) + " armed";
+   msg += " · ⬆️" + IntegerToString(g_box.n_break_up);
+   msg += " ⬇️" + IntegerToString(g_box.n_break_dn);
+   msg += " · ❌" + IntegerToString(g_box.n_fail) + " fail\n";
+   msg += "Last: " + last_box + "\n\n";
+   msg += "⚠️ Observe only · no live orders · not a profit claim";
    B100Tg(msg);
    Print("B100 ML/RL status sent");
   }
@@ -974,7 +988,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v1.94  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v1.97  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
