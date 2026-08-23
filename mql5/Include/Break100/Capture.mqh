@@ -399,6 +399,12 @@ void B100CaptureOutcome(B100Capture &c, const B100Box &b, const string label, co
   {
    if(!c.enabled)
       return;
+   static datetime s_bar = 0;
+   static string   s_lab = "";
+   if(b.armed_bar == s_bar && label == s_lab)
+      return;
+   s_bar = b.armed_bar;
+   s_lab = label;
    const int fh = B100CapOpenAppend("BREAK100_outcome_" + c.symbol_key + ".csv");
    if(fh == INVALID_HANDLE)
       return;
