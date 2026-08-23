@@ -1,5 +1,5 @@
 #property copyright "BREAK100"
-#property version   "1.97"
+#property version   "2.01"
 #property description "Range-then-break + optional impulse-then-range. M30 Telegram. Live locked."
 
 #include <Break100/Channel.mqh>
@@ -988,7 +988,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v1.97  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.01  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
