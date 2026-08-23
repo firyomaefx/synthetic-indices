@@ -2,7 +2,7 @@
 
 M30 box-breakout expert for **BREAK100** (Boom-class synthetic) on MetaTrader 5.
 
-**EA v2.18** · chart **M30 only** · live orders **locked** · **not a profit claim**
+**EA v2.15** · chart **M30 only** · live orders **locked** · **not a profit claim**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled in source)`
 
@@ -119,7 +119,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.18) |
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.15) |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
@@ -138,10 +138,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
-| **2.18** | SL/ENTRY/TP text is plain chart text 3 bars to the right of the last candle (no pixel HUD). Stays until TP3/SL/exit. |
-| **2.17** | RES/SUP stay on the box after fill (left of the rectangle). SL/ENTRY/TP stay on the far right. |
-| **2.16** | One Telegram ENTRY per fill (claim key before send; deal path does not resend). SL/ENTRY/TP labels on the far right, not on the dotted rays. |
-| **2.15** | HF sync writes one unique train file (no unique_unique clones). Outcome CSV one row per box. Trainer policy always `BREAK100_policy_<symbol>.csv`. |
+| **2.15** | Current. HF unique train file; outcome one row per box. **v2.16–2.18 reverted** (label experiments hid the box). |
 | **2.14** | Armed auto box shows WATCH arrows on both stops (not a fill). Mint/magenta fill arrow + Alert only on M30 close outside. |
 | **2.13** | HUD rows measured (WAIT then HUMAN never overlap). Drawn boxes snap to M30 wick high/low. Arrows half size (Wingdings 8pt). |
 | **2.12** | Wick snap on harvest; journal width 1 |
