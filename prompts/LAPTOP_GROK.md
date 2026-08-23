@@ -1,6 +1,6 @@
 Clone or pull https://github.com/firyomaefx/synthetic-indices.git (git pull origin master).
 
-BREAK100 v2.01 — M30 box breakout (range then break). OCO both stops. Live locked.
+BREAK100 v2.02 — M30 box breakout (range then break). OCO both stops. Live locked.
 
 Install on this Windows machine:
 1. Copy mql5/Experts/BREAK100.mq5 and ALL of mql5/Include/Break100/ into every %APPDATA%\MetaQuotes\Terminal\<hash>\MQL5 matching folder.

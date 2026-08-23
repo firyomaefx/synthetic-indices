@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.01"
-#property description "Short emoji Telegram status. Dotted SL/TP after fill. Live locked."
+#property version   "2.02"
+#property description "Hide SL/TP rays after TP3/SL/exit. Short emoji status. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -620,6 +620,7 @@ void OnTick()
         }
       else
          Print("BREAK100 train discarded  q=", g_episode.quality, " ", g_episode.q_reason);
+      B100FibClear();
      }
    B100UpdateLines();
    B100PaintLevels();
@@ -881,6 +882,7 @@ void B100TelegramTp(const int level, const double px)
 
 void B100TelegramClose(const string why, const int dir, const double entry, const double exit_px, const double sl, const double tp, const double pts)
   {
+   B100FibClear();
    string tag = why;
    string face = "⚪";
    if(why == "CLOSE_SL" || why == "SL")
@@ -1031,7 +1033,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.01  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.02  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -1626,6 +1628,9 @@ void B100FibClear(void)
   {
    g_fib.on  = false;
    g_fib.dir = 0;
+   g_fib.entry = 0;
+   g_fib.sl = 0;
+   g_levels.valid = false;
    B100HideLevels();
   }
 

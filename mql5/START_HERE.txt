@@ -1,9 +1,10 @@
-BREAK100 v2.01 — START HERE
+BREAK100 v2.02 — START HERE
 ===========================
 
 What this is
   M30 box breakout on BREAK100. Watch both stops. First fill cancels the other.
   After fill: dotted SL / ENTRY / TP1 / TP2 / TP3 with the price on each line.
+  Rays hide when TP3 / SL / time-exit hits (not left up as a fake live setup).
   Telegram from the M30 chart only. Live orders locked. Not a profit claim.
 
 Attach
