@@ -189,6 +189,7 @@ bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
    if(iBars(_Symbol, tf) < end_shift + maxb + 2)
       return false;
 
+   // Rails are wick high/low (shadows), never open/close body.
    hi = iHigh(_Symbol, tf, end_shift);
    lo = iLow(_Symbol, tf, end_shift);
    n_bars = 1;
