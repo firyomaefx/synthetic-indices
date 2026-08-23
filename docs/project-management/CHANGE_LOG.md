@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-23 | v2.14 Armed auto box: small WATCH arrows on BUY STOP and SELL STOP. Fill arrow + Alert only when M30 closes outside. Not a profit claim. Live locked. | MQL5 box visual | Owner request |
 | 2026-08-23 | v2.13 HUD cursor-stack (measure WAIT then HUMAN — no shared Y). Human + EA boxes snap to M30 wick high/low. Journal arrows Wingdings 8pt (half). Live locked. | MQL5 HUD + box + arrows | Owner request |
 | 2026-08-23 | v2.11 HUD stacked: WAIT, then prices, then HUMAN n — no overlap. Live locked. | MQL5 HUD | Owner request |
 | 2026-08-23 | v2.10 TP1 = 1R (min RR 1:1). TP2/TP3 from UCB. Human-box UP/DN rows enter unique train. OCO both. Live locked. | MQL5 + trainer | Owner request |
