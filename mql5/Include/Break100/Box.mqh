@@ -419,28 +419,10 @@ string B100BoxOnTick(B100Box &b,
 
 void B100BoxApplyDirGate(B100Box &b, const string gate)
   {
-   b.dir_gate = gate;
-   if(gate == "SKIP")
-     {
-      b.state = B100_BOX_SCAN;
-      b.ready = false;
-      b.just_armed = false;
-      b.allow_buy = false;
-      b.allow_sell = false;
-      return;
-     }
-   if(gate == "BUY")
-     {
-      b.allow_buy  = true;
-      b.allow_sell = false;
-      b.sell_stop  = 0.0;
-     }
-   else if(gate == "SELL")
-     {
-      b.allow_buy  = false;
-      b.allow_sell = true;
-      b.buy_stop   = 0.0;
-     }
+   // Chart always watches both rails. Gate is stored for DEMO pendings only.
+   b.dir_gate   = gate;
+   b.allow_buy  = true;
+   b.allow_sell = true;
   }
 
 string B100BoxWatchNote(const B100Box &b, const double mid)
@@ -448,9 +430,11 @@ string B100BoxWatchNote(const B100Box &b, const double mid)
    if(b.state != B100_BOX_ARMED || !b.ready)
       return "scanning for an M30 pause (3–8 overlapping bars inside H4)";
    if(b.dir_gate == "BUY")
-      return "RL BUY-only  BUY STOP " + DoubleToString(b.buy_stop, _Digits);
+      return "chart BOTH  demo BUY-only  BUY " + DoubleToString(b.buy_stop, _Digits) +
+             "  SELL " + DoubleToString(b.sell_stop, _Digits);
    if(b.dir_gate == "SELL")
-      return "RL SELL-only  SELL STOP " + DoubleToString(b.sell_stop, _Digits);
+      return "chart BOTH  demo SELL-only  BUY " + DoubleToString(b.buy_stop, _Digits) +
+             "  SELL " + DoubleToString(b.sell_stop, _Digits);
    string ph = b.phase;
    if(ph == "IMPULSE_THEN_RANGE")
       ph = (b.imp_dir > 0 ? "after UP impulse" : "after DN impulse");

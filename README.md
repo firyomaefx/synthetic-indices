@@ -2,7 +2,7 @@
 
 M30 box-breakout expert for **BREAK100** (Boom-class synthetic) on MetaTrader 5.
 
-**EA v2.02** · chart **M30 only** · live orders **locked** · **not a profit claim**
+**EA v2.03** · chart **M30 only** · live orders **locked** · **not a profit claim**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled in source)`
 
@@ -25,7 +25,7 @@ ML/RL reads closed fills and can SKIP / BUY-only / SELL-only / both. That is a l
 ## How a signal works
 
 1. **Box** — last 4–8 M30 bars, height ≤ 25% of the last H4 candle. Default is **range then break** (`InpImpulseK = 0`).
-2. **WATCH** — BUY STOP above the box, SELL STOP below. RL may drop one side or skip the pause.
+2. **WATCH** — BUY STOP above the box, SELL STOP below. Chart always both sides. RL BUY/SELL/SKIP applies to **DEMO** pendings only (HF `p_dn≈0` must not hide sells).
 3. **Fill** — M30 **closes** outside the box. The other stop is deleted.
 4. **Path** — SL past the opposite rail. TP in **box heights**. Dotted price lines stay until TP3 / SL / time-exit (or the next WATCH).
 5. **Log** — ticks, bars, and quality-gated `train.csv` for Hugging Face / the local trainer.
@@ -109,7 +109,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.02) |
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.03) |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
@@ -128,6 +128,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **2.03** | CAPA: chart always both sides + magenta SELL arrows. RL gate no longer zeros `sell_stop` on Observe |
 | **2.02** | Hide dotted SL/TP rays when the path ends (TP3 / SL / time-exit), not only on the next WATCH |
 | **2.01** | Short emoji 6h Telegram status |
 | **2.00** | After fill: dotted SL / ENTRY / TP1–3 rays with price on the line (not a Fib object) |

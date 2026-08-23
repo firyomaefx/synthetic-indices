@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.02"
-#property description "Hide SL/TP rays after TP3/SL/exit. Short emoji status. Live locked."
+#property version   "2.03"
+#property description "Both-side arrows; RL gate is DEMO-only. Hide rays after exit. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -389,27 +389,20 @@ void OnTick()
             B100LearnerPolicy(g_learner, 0, g_policy);
             gate = g_policy.dir_gate;
            }
+         B100SanitizeDirGate(g_policy);
+         gate = g_policy.dir_gate;
          B100BoxApplyDirGate(g_box, gate);
+         B100CaptureSetup(g_capture, g_box, bid, ask);
+         if(InpTrainLog)
+            B100TrainArm(g_episode, g_box, bid, ask, g_learner.last_arm);
+         arm_now = true;
          if(gate == "SKIP")
-           {
-            Print("BREAK100 RL SKIP pause  p_up=", DoubleToString(g_policy.p_up, 2),
-                  " p_dn=", DoubleToString(g_policy.p_dn, 2),
-                  " p_fail=", DoubleToString(g_policy.p_fail, 2),
-                  " n=", g_policy.n);
-            g_signal = "WAIT";
-            g_signal_note = "RL SKIP — trap rate high, no OCO this pause";
-           }
-         else
-           {
-            B100CaptureSetup(g_capture, g_box, bid, ask);
-            if(InpTrainLog)
-               B100TrainArm(g_episode, g_box, bid, ask, g_learner.last_arm);
-            arm_now = true;
-            if(gate != "BOTH")
-               Print("BREAK100 RL gate=", gate,
-                     " p_up=", DoubleToString(g_policy.p_up, 2),
-                     " p_dn=", DoubleToString(g_policy.p_dn, 2));
-           }
+            Print("BREAK100 RL SKIP demo only  chart still both  p_fail=",
+                  DoubleToString(g_policy.p_fail, 2), " n=", g_policy.n);
+         else if(gate != "BOTH")
+            Print("BREAK100 RL demo gate=", gate,
+                  "  chart both  p_up=", DoubleToString(g_policy.p_up, 2),
+                  " p_dn=", DoubleToString(g_policy.p_dn, 2));
          g_box.just_armed = false;
         }
       if(labeled != "")
@@ -1033,7 +1026,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.02  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.03  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -1094,8 +1087,17 @@ void B100ArmBoxOco(const double bid, const double ask)
    if(B100CountMagicPositions() > 0)
       return;
 
-   const bool want_buy  = g_box.allow_buy && g_box.buy_stop > 0.0;
-   const bool want_sell = g_box.allow_sell && g_box.sell_stop > 0.0;
+   bool want_buy  = g_box.buy_stop > 0.0;
+   bool want_sell = g_box.sell_stop > 0.0;
+   if(B100BrokerOrderIntentPermitted(g_mode))
+     {
+      if(g_box.dir_gate == "SKIP")
+         return;
+      if(g_box.dir_gate == "BUY")
+         want_sell = false;
+      if(g_box.dir_gate == "SELL")
+         want_buy = false;
+     }
    if(!want_buy && !want_sell)
       return;
 
@@ -2010,12 +2012,12 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when)
    const string arr = "B100_jn_arr_" + id;
    const string ln  = "B100_jn_ln_" + id;
    const color clr = (dir > 0) ? CLR_ARR_BUY : CLR_ARR_SELL;
-   const ENUM_OBJECT kind = (dir > 0) ? OBJ_ARROW_BUY : OBJ_ARROW_SELL;
-   const int w = B100JournalWidth();
+   const int w = MathMax(2, B100JournalWidth());
 
    if(ObjectFind(0, arr) >= 0)
       ObjectDelete(0, arr);
-   ObjectCreate(0, arr, kind, 0, t, price);
+   ObjectCreate(0, arr, OBJ_ARROW, 0, t, price);
+   ObjectSetInteger(0, arr, OBJPROP_ARROWCODE, (dir > 0) ? 233 : 234);
    ObjectSetInteger(0, arr, OBJPROP_COLOR, clr);
    ObjectSetInteger(0, arr, OBJPROP_WIDTH, w);
    ObjectSetInteger(0, arr, OBJPROP_ANCHOR, (dir > 0) ? ANCHOR_TOP : ANCHOR_BOTTOM);
@@ -2038,6 +2040,9 @@ void B100MarkBoxSignal(const int dir, const double price, datetime when)
    ObjectSetInteger(0, ln, OBJPROP_HIDDEN, false);
    ObjectSetInteger(0, ln, OBJPROP_BACK, false);
    ObjectSetInteger(0, ln, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
+   Print("B100 arrow ", (dir > 0 ? "BUY" : "SELL"),
+         "  ", TimeToString(t, TIME_DATE | TIME_MINUTES),
+         "  ", DoubleToString(price, _Digits));
    ChartRedraw(0);
   }
 

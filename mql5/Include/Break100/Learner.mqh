@@ -248,6 +248,16 @@ void B100FillDirGate(const B100Learner &L, B100LearnPolicy &p)
       p.dir_gate = "BUY";
    else if(pd >= pu + 0.12 && pd >= 0.38)
       p.dir_gate = "SELL";
+   B100SanitizeDirGate(p);
+  }
+
+void B100SanitizeDirGate(B100LearnPolicy &p)
+  {
+   // Do not ban a side that the sample never saw (HF n=400 bounce dupes → p_dn≈0).
+   if(p.dir_gate == "BUY" && p.p_dn < 0.08)
+      p.dir_gate = "BOTH";
+   if(p.dir_gate == "SELL" && p.p_up < 0.08)
+      p.dir_gate = "BOTH";
   }
 
 void B100LearnerObserve(B100Learner &L, const int side, const string label, const double mfe, const double mae, const double hw)
@@ -351,6 +361,7 @@ bool B100PolicyLoad(B100LearnPolicy &p)
       p.source = "RL_UCB";
    if(p.dir_gate == "")
       p.dir_gate = "BOTH";
+   B100SanitizeDirGate(p);
    p.arm_id = (p.arm == 1 ? "tight" : p.arm == 2 ? "wide" : p.arm == 3 ? "runner" : "balanced");
    return (p.sl_r > 0.0 && p.tp3_r > 0.0);
   }
