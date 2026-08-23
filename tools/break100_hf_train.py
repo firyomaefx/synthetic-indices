@@ -49,20 +49,26 @@ def realized_r(mfe, mae, hw, sl_r, tp3_r):
     return captured / stop - COST
 
 
+def _plain_train(root: Path):
+    exact_u = root / "BREAK100_train_unique_BREAK100.csv"
+    if exact_u.exists():
+        return exact_u
+    exact = root / "BREAK100_train_BREAK100.csv"
+    if exact.exists():
+        return exact
+    plains = [p for p in sorted(root.glob("BREAK100_train_*.csv"), key=lambda p: p.stat().st_mtime) if "unique" not in p.name]
+    return plains[-1] if plains else None
+
+
 def find_common_csv():
     app = os.environ.get("APPDATA", "")
     if app:
         root = Path(app) / "MetaQuotes" / "Terminal" / "Common" / "Files"
-        uniq = sorted(root.glob("BREAK100_train_unique_*.csv"), key=lambda p: p.stat().st_mtime)
-        if uniq:
-            return uniq[-1]
-        trains = sorted(root.glob("BREAK100_train_*.csv"), key=lambda p: p.stat().st_mtime)
-        if trains:
-            return trains[-1]
+        hit = _plain_train(root)
+        if hit:
+            return hit
         # learn.csv is bounce duplicates — never train from it.
-    here = Path.cwd()
-    hits = sorted(here.glob("BREAK100_train_unique_*.csv")) + sorted(here.glob("BREAK100_train_*.csv"))
-    return hits[-1] if hits else None
+    return _plain_train(Path.cwd())
 
 
 def load_rows(path: Path):
@@ -296,13 +302,20 @@ def hf_direction_fit(rows):
 
 
 def policy_path(csv_path: Path) -> Path:
+    """EA loads BREAK100_policy_<symbol>.csv — never policy_unique_..."""
     name = csv_path.name
+    if name.endswith(".csv"):
+        name = name[:-4]
+    while "unique_" in name:
+        name = name.replace("unique_", "")
     if name.startswith("BREAK100_train_"):
         name = "BREAK100_policy_" + name[len("BREAK100_train_") :]
     elif name.startswith("BREAK100_learn_"):
         name = "BREAK100_policy_" + name[len("BREAK100_learn_") :]
     else:
-        name = csv_path.name + ".policy.csv"
+        name = "BREAK100_policy_BREAK100"
+    if not name.endswith(".csv"):
+        name += ".csv"
     return csv_path.with_name(name)
 
 
