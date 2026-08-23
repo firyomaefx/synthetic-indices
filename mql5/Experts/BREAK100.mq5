@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.08"
-#property description "saved tag on your rectangles when harvested. OCO both. Live locked."
+#property version   "2.09"
+#property description "Human box then label the next M30 close UP/DN. OCO both. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -1022,7 +1022,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.08  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.09  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -2087,9 +2087,10 @@ void B100HarvestHumanBoxes()
                            FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON, ',');
    if(fh == INVALID_HANDLE)
       return;
-   FileWrite(fh, "name", "t_left", "t_right", "high", "low", "bars", "height", "h_vs_h4", "overlap_ea");
+   FileWrite(fh, "name", "t_left", "t_right", "high", "low", "bars", "height", "h_vs_h4", "overlap_ea",
+            "after_dir", "after_bars", "after_size", "after_vs_box");
    ObjectsDeleteAll(0, "B100H_ok_");
-   int kept = 0;
+   int kept = 0, n_up = 0, n_dn = 0;
    const int n = ObjectsTotal(0, 0, OBJ_RECTANGLE);
    for(int i = 0; i < n; i++)
      {
@@ -2137,6 +2138,49 @@ void B100HarvestHumanBoxes()
          if(du > 0.0 && pu > 0.0)
             ov = (dt / du) * (po / pu);
         }
+      string after = "WAIT";
+      int after_dir = 0;
+      int after_bars = 0;
+      double after_size = 0.0;
+      const int shR = iBarShift(_Symbol, PERIOD_M30, t1, true);
+      const int tmax = MathMax(2, InpBoxTimeout);
+      if(shR > 1)
+        {
+         int seen = 0;
+         for(int shk = shR - 1; shk >= 1 && seen < tmax; shk--)
+           {
+            const datetime bt = iTime(_Symbol, PERIOD_M30, shk);
+            if(bt <= t1)
+               continue;
+            seen++;
+            const double c = iClose(_Symbol, PERIOD_M30, shk);
+            const bool hit_up = (c >= hi);
+            const bool hit_dn = (c <= lo);
+            if(hit_up && hit_dn)
+              {
+               after = "FAIL";
+               after_bars = seen;
+               break;
+              }
+            if(hit_up)
+              {
+               after = "UP";
+               after_dir = 1;
+               after_bars = seen;
+               after_size = c - hi;
+               break;
+              }
+            if(hit_dn)
+              {
+               after = "DN";
+               after_dir = -1;
+               after_bars = seen;
+               after_size = lo - c;
+               break;
+              }
+           }
+        }
+      const double avs = (height > 0.0) ? after_size / height : 0.0;
       FileWrite(fh, name,
                 TimeToString(t0, TIME_DATE | TIME_MINUTES),
                 TimeToString(t1, TIME_DATE | TIME_MINUTES),
@@ -2145,28 +2189,44 @@ void B100HarvestHumanBoxes()
                 nb,
                 DoubleToString(height, _Digits),
                 DoubleToString(hvh, 3),
-                DoubleToString(ov, 3));
-      ObjectSetString(0, name, OBJPROP_TOOLTIP, "B100 saved  " + IntegerToString(nb) + " M30 bars");
+                DoubleToString(ov, 3),
+                after,
+                after_bars,
+                DoubleToString(after_size, _Digits),
+                DoubleToString(avs, 3));
+      string mark = "saved " + after;
+      color mclr = clrSilver;
+      if(after_dir > 0)
+         mclr = CLR_ARR_BUY;
+      else if(after_dir < 0)
+         mclr = CLR_ARR_SELL;
+      ObjectSetString(0, name, OBJPROP_TOOLTIP,
+                      "B100 " + mark + "  " + IntegerToString(nb) + " M30 in box  +" +
+                      IntegerToString(after_bars) + " to break");
       const string tag = "B100H_ok_" + IntegerToString(kept);
       if(ObjectFind(0, tag) < 0)
          ObjectCreate(0, tag, OBJ_TEXT, 0, t0, hi);
       ObjectSetInteger(0, tag, OBJPROP_TIME, 0, t0);
       ObjectSetDouble(0, tag, OBJPROP_PRICE, 0, hi);
-      ObjectSetString(0, tag, OBJPROP_TEXT, "saved");
+      ObjectSetString(0, tag, OBJPROP_TEXT, mark);
       ObjectSetString(0, tag, OBJPROP_FONT, "Arial");
       ObjectSetInteger(0, tag, OBJPROP_FONTSIZE, 8);
-      ObjectSetInteger(0, tag, OBJPROP_COLOR, CLR_ARR_BUY);
+      ObjectSetInteger(0, tag, OBJPROP_COLOR, mclr);
       ObjectSetInteger(0, tag, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
       ObjectSetInteger(0, tag, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, tag, OBJPROP_HIDDEN, false);
       ObjectSetInteger(0, tag, OBJPROP_TIMEFRAMES, OBJ_PERIOD_M30);
+      if(after_dir > 0)
+         n_up++;
+      else if(after_dir < 0)
+         n_dn++;
       kept++;
      }
    FileClose(fh);
    if(kept != g_human_n)
      {
       g_human_n = kept;
-      Print("B100 human boxes saved n=", kept,
+      Print("B100 human boxes n=", kept, "  UP=", n_up, "  DN=", n_dn,
             "  file=BREAK100_human_box_", sym, ".csv");
      }
    else
