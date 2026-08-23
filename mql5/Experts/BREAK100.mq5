@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.07"
-#property description "Reads your MT5 rectangles as human box labels. OCO both. Live locked."
+#property version   "2.08"
+#property description "saved tag on your rectangles when harvested. OCO both. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -69,6 +69,7 @@ input bool           InpHarvestRects   = true;         // Save your drawn rectan
 #define LINE_DN    "B100_lower"
 #define LBL_SIG    "B100_signal"
 #define LBL_LV     "B100_levels"
+#define LBL_HUM    "B100_human"
 #define LV_ENTRY   "B100_lv_entry"
 #define LV_SL      "B100_lv_sl"
 #define LV_TP1     "B100_lv_tp1"
@@ -326,6 +327,8 @@ void OnDeinit(const int reason)
    ObjectDelete(0, LINE_DN);
    ObjectDelete(0, LBL_SIG);
    ObjectDelete(0, LBL_LV);
+   ObjectDelete(0, LBL_HUM);
+   ObjectsDeleteAll(0, "B100H_ok_");
    ObjectDelete(0, LV_ENTRY);
    ObjectDelete(0, LV_SL);
    ObjectDelete(0, LV_TP1);
@@ -1019,7 +1022,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.07  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.08  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -2085,6 +2088,7 @@ void B100HarvestHumanBoxes()
    if(fh == INVALID_HANDLE)
       return;
    FileWrite(fh, "name", "t_left", "t_right", "high", "low", "bars", "height", "h_vs_h4", "overlap_ea");
+   ObjectsDeleteAll(0, "B100H_ok_");
    int kept = 0;
    const int n = ObjectsTotal(0, 0, OBJ_RECTANGLE);
    for(int i = 0; i < n; i++)
@@ -2142,6 +2146,20 @@ void B100HarvestHumanBoxes()
                 DoubleToString(height, _Digits),
                 DoubleToString(hvh, 3),
                 DoubleToString(ov, 3));
+      ObjectSetString(0, name, OBJPROP_TOOLTIP, "B100 saved  " + IntegerToString(nb) + " M30 bars");
+      const string tag = "B100H_ok_" + IntegerToString(kept);
+      if(ObjectFind(0, tag) < 0)
+         ObjectCreate(0, tag, OBJ_TEXT, 0, t0, hi);
+      ObjectSetInteger(0, tag, OBJPROP_TIME, 0, t0);
+      ObjectSetDouble(0, tag, OBJPROP_PRICE, 0, hi);
+      ObjectSetString(0, tag, OBJPROP_TEXT, "saved");
+      ObjectSetString(0, tag, OBJPROP_FONT, "Arial");
+      ObjectSetInteger(0, tag, OBJPROP_FONTSIZE, 8);
+      ObjectSetInteger(0, tag, OBJPROP_COLOR, CLR_ARR_BUY);
+      ObjectSetInteger(0, tag, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
+      ObjectSetInteger(0, tag, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, tag, OBJPROP_HIDDEN, false);
+      ObjectSetInteger(0, tag, OBJPROP_TIMEFRAMES, OBJ_PERIOD_M30);
       kept++;
      }
    FileClose(fh);
@@ -2153,6 +2171,7 @@ void B100HarvestHumanBoxes()
      }
    else
       g_human_n = kept;
+   B100PaintHud();
   }
 
 void B100PaintHud()
@@ -2160,7 +2179,7 @@ void B100PaintHud()
    const int x = 14;
    const int y = 16;
    const bool armed = (InpStrategy == B100_STRAT_BOX_M30 && g_box.ready && g_box.state == B100_BOX_ARMED);
-   const int h = (g_levels.valid || armed) ? 78 : 56;
+   const int h = (g_levels.valid || armed) ? 92 : (g_human_n > 0 ? 72 : 56);
    if(ObjectFind(0, HUD_BG) < 0)
       ObjectCreate(0, HUD_BG, OBJ_RECTANGLE_LABEL, 0, 0, 0);
    ObjectSetInteger(0, HUD_BG, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
@@ -2213,6 +2232,20 @@ void B100PaintHud()
    ObjectSetInteger(0, LBL_LV, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, LBL_LV, OBJPROP_HIDDEN, true);
    ObjectSetString(0, LBL_LV, OBJPROP_TEXT, sub);
+
+   string hum = (g_human_n > 0) ? ("HUMAN " + IntegerToString(g_human_n) + " saved") : "";
+   if(ObjectFind(0, LBL_HUM) < 0)
+      ObjectCreate(0, LBL_HUM, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, LBL_HUM, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, LBL_HUM, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+   ObjectSetInteger(0, LBL_HUM, OBJPROP_XDISTANCE, x + 16);
+   ObjectSetInteger(0, LBL_HUM, OBJPROP_YDISTANCE, y + (sub == "" ? 42 : 58));
+   ObjectSetInteger(0, LBL_HUM, OBJPROP_FONTSIZE, 9);
+   ObjectSetString(0, LBL_HUM, OBJPROP_FONT, "Georgia");
+   ObjectSetInteger(0, LBL_HUM, OBJPROP_COLOR, CLR_ARR_BUY);
+   ObjectSetInteger(0, LBL_HUM, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, LBL_HUM, OBJPROP_HIDDEN, true);
+   ObjectSetString(0, LBL_HUM, OBJPROP_TEXT, hum);
   }
 
 void B100PaintPanel()

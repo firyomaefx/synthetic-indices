@@ -2,6 +2,7 @@
 
 | Date | Change | Scope | Approval |
 |---|---|---|---|
+| 2026-08-23 | v2.08 On-chart `saved` tag and HUD HUMAN n when a drawn rectangle is harvested. Live locked. | MQL5 visual | Owner request |
 | 2026-08-23 | v2.07 EA reads chart rectangles (pause before big move) into BREAK100_human_box_*.csv; HF sync uploads. Live locked. | MQL5 + HF | Owner request |
 | 2026-08-23 | v2.06 BUY mint / SELL magenta arrows half width on M30. Live locked. | MQL5 visual | Owner request |
 | 2026-08-23 | v2.05 Blotter-first: drop ATR from quality (TP3 was box_invalid); trainer unique quality=1 never learn.csv; policy gate BOTH; status unique n. 8-week kill. Live locked. | MQL5 Train + HF | Owner request |

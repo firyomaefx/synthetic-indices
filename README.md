@@ -2,7 +2,7 @@
 
 M30 box-breakout expert for **BREAK100** (Boom-class synthetic) on MetaTrader 5.
 
-**EA v2.07** · chart **M30 only** · live orders **locked** · **not a profit claim**
+**EA v2.08** · chart **M30 only** · live orders **locked** · **not a profit claim**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled in source)`
 
@@ -119,7 +119,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.07) |
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.08) |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
@@ -138,6 +138,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **2.08** | `saved` tag + HUD HUMAN n when a rectangle is harvested |
 | **2.07** | Harvest your MT5 rectangles as human box labels (`BREAK100_human_box_*.csv` → HF) |
 | **2.06** | BUY/SELL journal arrows half size on M30 |
 | **2.05** | Blotter-first: quality ignores ATR; unique train only; Telegram unique n; policy gate always OCO BOTH. Kill: 8 weeks unique n<16 or OOS R≤0 → no promotion |

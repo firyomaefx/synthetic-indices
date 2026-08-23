@@ -1,4 +1,4 @@
-BREAK100 v2.07 — START HERE
+BREAK100 v2.08 — START HERE
 ===========================
 
 What this is
@@ -9,6 +9,7 @@ What this is
 
 Human boxes
   On M30 draw Insert → Objects → Rectangle over the pause (before the big candle).
+  You should see mint text **saved** on the box and HUD **HUMAN n**.
   EA writes Common\\Files\\BREAK100_human_box_BREAK100.csv. Not B100_* names (those are EA).
 
 Attach
