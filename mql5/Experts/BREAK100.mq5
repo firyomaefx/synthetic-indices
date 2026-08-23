@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.09"
-#property description "Human box then label the next M30 close UP/DN. OCO both. Live locked."
+#property version   "2.10"
+#property description "TP1=1R; TP2/TP3 ML; human boxes into blotter. OCO both. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -1022,7 +1022,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.09  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.10  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -1250,13 +1250,11 @@ void B100FillLevels(const int dir, const double entry, const double ask, const d
   {
    const double spread = MathMax(ask - bid, _Point);
    double sl_hw = InpStopAtrMult;
-   double tp1_hw = InpTp1R * sl_hw;
    double tp2_hw = InpTp2R * sl_hw;
    double tp3_hw = InpTp3R * sl_hw;
    if(InpUseLearner)
      {
       sl_hw  = g_policy.sl_r;
-      tp1_hw = g_policy.tp1_r;
       tp2_hw = g_policy.tp2_r;
       tp3_hw = g_policy.tp3_r;
      }
@@ -1271,10 +1269,10 @@ void B100FillLevels(const int dir, const double entry, const double ask, const d
    g_levels.entry = entry;
    g_levels.r     = stop_dist;
    g_levels.sl    = entry - dir * stop_dist;
-   const double d1 = MathMax(tp1_hw * g_pipe.half_width, 0.5 * stop_dist);
-   const double d2 = MathMax(tp2_hw * g_pipe.half_width, d1 + 0.2 * g_pipe.half_width);
-   const double d3 = MathMax(tp3_hw * g_pipe.half_width, d2 + 0.2 * g_pipe.half_width);
-   g_levels.tp1   = entry + dir * d1;
+   const double R = g_levels.r;
+   double d2 = MathMax(2.0 * R, tp2_hw * g_pipe.half_width);
+   double d3 = MathMax(d2 + 0.2 * R, tp3_hw * g_pipe.half_width);
+   g_levels.tp1   = entry + dir * R;
    g_levels.tp2   = entry + dir * d2;
    g_levels.tp3   = entry + dir * d3;
    g_levels.tp_hit= 0;
@@ -1318,9 +1316,25 @@ void B100FillBoxLevels(const int dir, const double entry, const double ask, cons
    if((dir > 0 && g_levels.sl >= g_levels.entry) || (dir < 0 && g_levels.sl <= g_levels.entry))
       g_levels.sl = g_levels.entry - dir * MathMax(4.0 * spread, 0.5 * H);
    g_levels.r = MathAbs(g_levels.entry - g_levels.sl);
-   g_levels.tp1 = g_levels.entry + dir * H * MathMax(tp1m, 0.5);
-   g_levels.tp2 = g_levels.entry + dir * H * MathMax(tp2m, tp1m + 0.2);
-   g_levels.tp3 = g_levels.entry + dir * H * MathMax(tp3m, tp2m + 0.2);
+   const double R = g_levels.r;
+   g_levels.tp1 = g_levels.entry + dir * R;
+   double d2 = 2.0 * R;
+   double d3 = 3.0 * R;
+   if(InpUseLearner)
+     {
+      if(tp2m > 0.0)
+         d2 = MathMax(d2, tp2m * H);
+      if(tp3m > 0.0)
+         d3 = MathMax(d3, tp3m * H);
+     }
+   else
+     {
+      d2 = MathMax(d2, InpTp2R * R);
+      d3 = MathMax(d3, InpTp3R * R);
+     }
+   d3 = MathMax(d3, d2 + 0.2 * R);
+   g_levels.tp2 = g_levels.entry + dir * d2;
+   g_levels.tp3 = g_levels.entry + dir * d3;
    g_levels.tp_hit = 0;
   }
 

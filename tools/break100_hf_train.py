@@ -131,6 +131,40 @@ def rec_id_fallback(r: dict) -> str:
     return "|".join(str(r.get(k, "")) for k in ("side", "label", "mfe", "mae", "hw"))
 
 
+def load_human_boxes(root: Path) -> list:
+    """Rectangles: pause then first M30 close outside = UP/DN big move."""
+    rows = []
+    for p in sorted(root.glob("BREAK100_human_box_*.csv")):
+        with p.open(newline="", encoding="utf-8", errors="replace") as f:
+            for rec in csv.DictReader(f):
+                after = (rec.get("after_dir") or rec.get("after") or "").strip().upper()
+                if after not in ("UP", "DN"):
+                    continue
+                try:
+                    hw = float(rec.get("height") or 0)
+                    sz = float(rec.get("after_size") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if hw <= 0:
+                    continue
+                side = 1 if after == "UP" else -1
+                lab = "BREAKOUT_UP" if side > 0 else "BREAKOUT_DOWN"
+                eid = "H|" + str(rec.get("t_left") or "") + "|" + str(rec.get("name") or p.name)
+                rows.append(
+                    {
+                        "side": side,
+                        "label": lab,
+                        "mfe": max(0.0, sz),
+                        "mae": 0.0,
+                        "hw": hw,
+                        "arm": 0,
+                        "y": after,
+                        "episode_id": eid,
+                    }
+                )
+    return rows
+
+
 def as_hf_dataset(rows):
     try:
         from datasets import Dataset
@@ -321,6 +355,12 @@ def train_file(csv_path) -> dict:
     """Train from a CSV path. Returns a result dict and writes policy next to the CSV."""
     path = Path(csv_path)
     rows = load_rows(path)
+    human = load_human_boxes(path.parent)
+    if human:
+        by = {r.get("episode_id") or rec_id_fallback(r): r for r in rows}
+        for h in human:
+            by[h["episode_id"]] = h
+        rows = list(by.values())
     n = len(rows)
     out = policy_path(path)
     result = {
@@ -346,7 +386,8 @@ def train_file(csv_path) -> dict:
     lines = [f"Input {path}", f"quality rows n={n}"]
     if n < MIN_N:
         pu, pd, pf, gate = dir_posterior(rows)
-        write_policy(out, 0, "DEFAULT", n, 0, *ARMS[0][1:], 0.0, pu, pd, pf, "BOTH")
+        sl0 = ARMS[0][1]
+        write_policy(out, 0, "DEFAULT", n, 0, sl0, sl0, max(ARMS[0][3], 2.0 * sl0), max(ARMS[0][4], 3.0 * sl0), 0.0, pu, pd, pf, "BOTH")
         result.update(p_up=pu, p_dn=pd, p_fail=pf, gate="BOTH", policy=str(out))
         result["log"] = "\n".join(lines + [f"Need {MIN_N} rows. Wrote DEFAULT OCO policy."])
         return result
@@ -356,6 +397,9 @@ def train_file(csv_path) -> dict:
     train, hold = rows[:split], rows[split:]
     arm = pick_ucb(train)
     sl, t1, t2, t3, mean_r = blend(train, arm)
+    t1 = sl
+    t2 = max(t2, 2.0 * sl)
+    t3 = max(t3, t2 + 0.2 * sl)
     pu, pd, pf, _ignored = hf_direction_fit(train)
     gate = "BOTH"
     oos = 0.0
@@ -364,7 +408,7 @@ def train_file(csv_path) -> dict:
     write_policy(out, 1, "HF_TABULAR", n, arm, sl, t1, t2, t3, mean_r, pu, pd, pf, gate)
     lines += [
         f"arm={ARMS[arm][0]} ({arm})",
-        f"SL/hw {sl:.3f}  TP {t1:.3f}/{t2:.3f}/{t3:.3f}",
+        f"SL/hw {sl:.3f}  TP1=1R {t1:.3f}  TP2 {t2:.3f}  TP3 {t3:.3f}",
         f"in-sample R {mean_r:.4f}  holdout R {oos:.4f}",
         f"p_up={pu:.3f} p_dn={pd:.3f} p_fail={pf:.3f} gate=BOTH (OCO)",
         "Holdout R is a research score. Not expected profit.",

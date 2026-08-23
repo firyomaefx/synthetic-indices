@@ -2,7 +2,7 @@
 
 M30 box-breakout expert for **BREAK100** (Boom-class synthetic) on MetaTrader 5.
 
-**EA v2.09** · chart **M30 only** · live orders **locked** · **not a profit claim**
+**EA v2.10** · chart **M30 only** · live orders **locked** · **not a profit claim**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled in source)`
 
@@ -27,7 +27,7 @@ ML/RL reads closed fills and can SKIP / BUY-only / SELL-only / both. That is a l
 1. **Box** — last 4–8 M30 bars, height ≤ 25% of the last H4 candle. Default is **range then break** (`InpImpulseK = 0`).
 2. **WATCH** — **OCO both sides**: BUY STOP above the box and SELL STOP below. RL does not drop a side.
 3. **Fill** — M30 **closes** outside. **BUY fill cancels SELL. SELL fill cancels BUY.**
-4. **Path** — SL past the opposite rail. TP in **box heights**. Dotted price lines stay until TP3 / SL / time-exit (or the next WATCH).
+4. **Path** — SL past the opposite rail. **TP1 = 1R (same as SL)**. TP2/TP3 from ML/RL (≥2R / ≥TP2). Dotted lines until TP3 / SL / time-exit.
 5. **Log** — ticks, bars, and quality-gated `train.csv` for Hugging Face / the local trainer.
 
 Do **not** attach this EA on M1 / M5 / M15 if you want one Telegram stream.
@@ -119,7 +119,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.09) |
+| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.10) |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
@@ -138,6 +138,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **2.10** | TP1 always 1R; TP2/TP3 ML/RL; human-box UP/DN merged into unique train |
 | **2.09** | After your rectangle, label the next M30 close as UP/DN (the big move) |
 | **2.08** | `saved` tag + HUD HUMAN n when a rectangle is harvested |
 | **2.07** | Harvest your MT5 rectangles as human box labels (`BREAK100_human_box_*.csv` → HF) |
