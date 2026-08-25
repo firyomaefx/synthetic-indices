@@ -234,11 +234,11 @@ long B100TelegramOnceReply(const string key, const string text, const long reply
       return 0;
    if(B100TgSeen(key))
       return 0;
+   // Claim before WebRequest so a deal callback cannot send a second ENTRY.
+   B100TgRemember(key);
    long id = B100TelegramSendReply(text, reply_to);
    if(id <= 0 && reply_to > 0)
       id = B100TelegramSendReply(text, 0);
-   if(id > 0)
-      B100TgRemember(key);
    return id;
   }
 

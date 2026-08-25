@@ -1,6 +1,6 @@
 #property copyright "BREAK100"
-#property version   "2.15"
-#property description "Train unique-file fix. Outcome dedupe. WATCH arrows. Live locked."
+#property version   "2.19"
+#property description "Tick fill for ENTRY. No TP1+TP2+TP3 spam on late catch-up. Live locked."
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -592,12 +592,24 @@ void OnTick()
    if(path_live || path_closed)
      {
       const double px_now = (g_episode.side > 0 ? bid : ask);
-      if(g_episode.hit_tp1 == 1 && g_tg_tp_announced < 1)
-         B100TelegramTp(1, px_now);
-      if(g_episode.hit_tp2 == 1 && g_tg_tp_announced < 2)
-         B100TelegramTp(2, px_now);
-      if(g_episode.hit_tp3 == 1 && g_tg_tp_announced < 3)
-         B100TelegramTp(3, px_now);
+      int max_hit = 0;
+      if(g_episode.hit_tp1 == 1)
+         max_hit = 1;
+      if(g_episode.hit_tp2 == 1)
+         max_hit = 2;
+      if(g_episode.hit_tp3 == 1)
+         max_hit = 3;
+      // Late catch-up (ENTRY after price already ran): one TP message, not TP1+TP2+TP3 spam.
+      if(max_hit > g_tg_tp_announced)
+        {
+         if(g_tg_tp_announced == 0 && max_hit >= 2)
+            B100TelegramTp(max_hit, px_now);
+         else
+           {
+            for(int lv = g_tg_tp_announced + 1; lv <= max_hit; lv++)
+               B100TelegramTp(lv, px_now);
+           }
+        }
      }
    if(path_closed)
      {
@@ -795,6 +807,8 @@ void B100TelegramWatch(void)
 void B100TelegramFill(const int dir, const double px, const bool sibling_deleted)
   {
    const string key = B100TgKey(dir > 0 ? "ENTRY_BUY" : "ENTRY_SELL");
+   if(B100TgSeen(key))
+      return;
    g_oco_fill_dir = dir;
    g_oco_fill_px  = px;
    string err = "";
@@ -874,6 +888,8 @@ void B100TelegramTp(const int level, const double px)
    msg += _Symbol + "  @ " + B100Px(px);
    if(g_episode.entry > 0.0)
       msg += "\nfrom ENTRY " + B100Px(g_episode.entry);
+   if(g_tg_tp_announced == 0 && level >= 2)
+      msg += "\n(price already through TP1" + (level >= 3 ? "/TP2" : "") + ")";
    if(!InpTelegram || !B100TgChart())
       return;
    if(B100TelegramOnceReply(key, msg, B100TgParent()) > 0 || B100TgSeen(key))
@@ -1032,7 +1048,7 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.15  Telegram OK  M30 only\n";
+   string msg = "🧪 BREAK100  v2.19  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
    msg += "👀 WATCH     both stops + SL/TP1\n";
@@ -1232,7 +1248,20 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       if(entry == DEAL_ENTRY_IN)
         {
          const int dir = (dtype == DEAL_TYPE_BUY) ? 1 : -1;
-         B100TelegramFill(dir, px, true);
+         string err = "";
+         if(dir > 0 && g_oco_sell_tk != 0)
+           {
+            B100DemoCancelTicket(g_oco_sell_tk, err);
+            g_oco_sell_tk = 0;
+           }
+         else if(dir < 0 && g_oco_buy_tk != 0)
+           {
+            B100DemoCancelTicket(g_oco_buy_tk, err);
+            g_oco_buy_tk = 0;
+           }
+         g_oco_fill_dir = dir;
+         g_oco_fill_px  = px;
+         // ENTRY Telegram only from tick/close box fill — not from the deal callback.
         }
       else if(entry == DEAL_ENTRY_OUT)
         {

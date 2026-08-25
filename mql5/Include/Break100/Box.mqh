@@ -306,8 +306,41 @@ string B100BoxOnTick(B100Box &b,
 
    if(b.state == B100_BOX_ARMED)
      {
+      // Tick fill first — Boom can run through all TPs before an M30 close.
+      const bool tick_buy  = (b.allow_buy && b.buy_stop > 0.0 && ask >= b.buy_stop);
+      const bool tick_sell = (b.allow_sell && b.sell_stop > 0.0 && bid <= b.sell_stop);
+      datetime lock_t = closed;
+      if(lock_t == 0)
+         lock_t = iTime(_Symbol, tf, 0);
+      if(lock_t == 0)
+         lock_t = TimeCurrent();
+      if(tick_buy && !tick_sell)
+        {
+         b.last_label = "BREAKOUT_UP";
+         b.last_side  = 1;
+         b.last_hw    = b.height;
+         b.last_mfe   = ask - b.buy_stop;
+         b.last_mae   = 0.0;
+         b.n_break_up++;
+         b.lock_bar = lock_t;
+         b.state = B100_BOX_SCAN;
+         return b.last_label;
+        }
+      if(tick_sell && !tick_buy)
+        {
+         b.last_label = "BREAKOUT_DOWN";
+         b.last_side  = -1;
+         b.last_hw    = b.height;
+         b.last_mfe   = b.sell_stop - bid;
+         b.last_mae   = 0.0;
+         b.n_break_dn++;
+         b.lock_bar = lock_t;
+         b.state = B100_BOX_SCAN;
+         return b.last_label;
+        }
       if(!new_bar)
          return "";
+      // Close backup (same bar both sides / timeout)
       const double c = iClose(_Symbol, tf, 1);
       const bool hit_buy  = (b.allow_buy && b.buy_stop > 0.0 && c >= b.buy_stop);
       const bool hit_sell = (b.allow_sell && b.sell_stop > 0.0 && c <= b.sell_stop);
