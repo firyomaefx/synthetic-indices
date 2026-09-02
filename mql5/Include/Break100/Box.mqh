@@ -55,8 +55,10 @@ struct B100Box
    int                  hist_n;
    bool                 just_armed;
    datetime             lock_bar;
-   bool                 allow_buy;
+   bool                 allow_buy;    // detection/alerting — never gated
    bool                 allow_sell;
+   bool                 exec_buy;     // order placement — gated by the learned policy
+   bool                 exec_sell;
    string               dir_gate;
    int                  touches_hi;
    int                  touches_lo;
@@ -433,6 +435,8 @@ string B100BoxOnTick(B100Box &b,
    b.just_armed = true;
    b.allow_buy  = true;
    b.allow_sell = true;
+   b.exec_buy   = true;
+   b.exec_sell  = true;
    b.dir_gate   = "BOTH";
    B100RangePattern(tf, 1, n, hi, lo, B100H4Span(),
                     b.touches_hi, b.touches_lo, b.close_loc, b.compress, b.h_vs_h4);
@@ -451,12 +455,16 @@ string B100BoxOnTick(B100Box &b,
    return "";
   }
 
+// The chart always watches both rails, so every box is still detected, labelled
+// and alerted. The gate decides only which side may be sent to the broker.
+// Previously exec had no representation here and the gate did nothing at all.
 void B100BoxApplyDirGate(B100Box &b, const string gate)
   {
-   // Chart always watches both rails. Gate is stored for DEMO pendings only.
    b.dir_gate   = gate;
    b.allow_buy  = true;
    b.allow_sell = true;
+   b.exec_buy   = (gate == "BOTH" || gate == "BUY");
+   b.exec_sell  = (gate == "BOTH" || gate == "SELL");
   }
 
 string B100BoxWatchNote(const B100Box &b, const double mid)

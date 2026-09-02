@@ -30,6 +30,8 @@ struct B100Episode
    double   hw;
    double   mfe;
    double   mae;
+   int      bars_to_mfe;
+   int      bars_to_mae;
    int      hit_tp1;
    int      hit_tp2;
    int      hit_tp3;
@@ -81,7 +83,10 @@ void B100TrainEnsureHeader(const int fh)
                 "bars_held", "weight", "episode_id", "q_reason",
                 "buy_stop", "sell_stop", "entry", "sl", "tp1", "tp2", "tp3",
                 "touches_hi", "touches_lo", "close_loc", "compress", "h_vs_h4",
-                "imp_dir", "imp_h", "imp_vs_box", "box_at", "phase");
+                "imp_dir", "imp_h", "imp_vs_box", "box_at", "phase",
+                // Appended at the end on purpose: B100TrainBlotterStats and the HF
+                // tooling address columns positionally, so existing indices must not move.
+                "bars_to_mfe", "bars_to_mae");
    else
       FileSeek(fh, 0, SEEK_END);
   }
@@ -188,7 +193,8 @@ void B100TrainWrite(const B100Episode &e)
              e.bars_held, w, (long)e.id, e.q_reason,
              e.buy_stop, e.sell_stop, e.entry, e.sl, e.tp1, e.tp2, e.tp3,
              e.touches_hi, e.touches_lo, e.close_loc, e.compress, e.h_vs_h4,
-             e.imp_dir, e.imp_h, e.imp_vs_box, e.box_at, e.phase);
+             e.imp_dir, e.imp_h, e.imp_vs_box, e.box_at, e.phase,
+             e.bars_to_mfe, e.bars_to_mae);
    FileClose(fh);
    const int kick = FileOpen("BREAK100_sync_needed.txt", FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
    if(kick != INVALID_HANDLE)
@@ -240,13 +246,20 @@ bool B100TrainStep(B100Episode &e, const double bid, const double ask, const int
    if(bid <= 0.0 || ask < bid)
       return false;
 
+   // MFE and MAE are independent extremes of the SAME signed excursion.
+   // Deriving one from the other (adv = -fav) forces mae == -mfe and destroys the label.
    const double px = (e.side > 0) ? bid : ask;
-   double fav = (e.side > 0) ? (px - e.entry) : (e.entry - px);
-   double adv = -fav;
+   const double fav = (e.side > 0) ? (px - e.entry) : (e.entry - px);
    if(fav > e.mfe)
+     {
       e.mfe = fav;
-   if(adv < e.mae)
-      e.mae = adv;
+      e.bars_to_mfe = e.bars_held;
+     }
+   if(fav < e.mae)
+     {
+      e.mae = fav;
+      e.bars_to_mae = e.bars_held;
+     }
 
    if(e.mfe >= MathAbs(e.tp1 - e.entry) && e.tp1 > 0.0)
       e.hit_tp1 = 1;

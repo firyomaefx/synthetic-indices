@@ -24,7 +24,7 @@ Modes (input InpMode)
 
 Copy files
   From this repo:
-    mql5\Experts\BREAK100.mq5
+    mql5\Experts\Break100 Box Trading.mq5
     mql5\Include\Break100\*
     mql5\Indicators\BREAK100_Channel.mq5   (only if you use the old channel strategy)
 
@@ -32,12 +32,12 @@ Copy files
     %APPDATA%\MetaQuotes\Terminal\<hash>\MQL5\
   matching Experts / Include\Break100 / Indicators.
 
-  Or run mql5\Install-BREAK100.ps1 after you mirror that tree.
+  Or run mql5\Install-Break100-Box-Trading.ps1 after you mirror that tree.
 
 Compile
-  F4 MetaEditor → open BREAK100.mq5 → F7.
+  F4 MetaEditor → open Break100 Box Trading.mq5 → F7.
   Log must say: 0 errors.
-  Version in the Navigator / Experts tab: 2.19
+  Version in the Navigator / Experts tab: 2.23
   Close MetaEditor. In MT5 Navigator: right-click Experts → Refresh.
 
 Attach

@@ -2,7 +2,7 @@
 
 M30 box-breakout expert for **BREAK100** (Boom-class synthetic) on MetaTrader 5.
 
-**EA v2.19** · chart **M30 only** · live orders **locked** · **not a profit claim**
+**EA v2.23** · chart **M30 only** · live orders **locked** · **not a profit claim**
 
 `OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled in source)`
 
@@ -50,7 +50,7 @@ Do **not** attach this EA on M1 / M5 / M15 if you want one Telegram stream.
 Desktop MT5 only. Not the iPhone app.
 
 1. Pull this repo (`git pull origin master` in `synthetic-indices`).
-2. Copy `mql5/Experts/BREAK100.mq5` and `mql5/Include/Break100/*` into the terminal `MQL5` folder. Compile in MetaEditor (**F7**). Expect **0 errors**.
+2. Copy `mql5/Experts/Break100 Box Trading.mq5` and `mql5/Include/Break100/*` into the terminal `MQL5` folder. Compile in MetaEditor (**F7**). Expect **0 errors**.
 3. Open **BREAK100, M30**. Attach **BREAK100**. Inputs: strategy **BOX_M30**, mode **OBSERVE** (or SHADOW). AutoTrading **OFF** on real.
 4. Experts log should show `B100 Telegram ON  chart=M30`. Other timeframes log `Telegram OFF`.
 
@@ -119,7 +119,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/BREAK100.mq5` | Chart EA (v2.19) |
+| `mql5/Experts/Break100 Box Trading.mq5` | Chart EA (v2.23) |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
@@ -138,6 +138,10 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **2.23** | Shadow ledger runs in every mode for every box, filtered or not, tagged with the execution decision; capture CSVs versioned to v2 with a header matching the rows. |
+| **2.22** | Box-size trade filter (`InpMinBoxSpreads`); stop re-anchored to the actual fill after a gapped entry; broker `trade_stops_level` honoured. |
+| **2.21** | Gated LIVE toggle: input + real account + login allowlist + chart button, disarmed on every restart. |
+| **2.20** | Renamed to Break100 Box Trading. Independent MFE/MAE labelling; learned direction gate applies to orders only. |
 | **2.19** | Tick fill for ENTRY (no wait for M30 close). Late path: one TP message (furthest), not TP1+TP2+TP3 spam. Box paint unchanged from 2.15. |
 | **2.15** | HF unique train file; outcome one row per box. **v2.16–2.18 reverted** (label experiments hid the box). |
 | **2.14** | Armed auto box shows WATCH arrows on both stops (not a fill). Mint/magenta fill arrow + Alert only on M30 close outside. |

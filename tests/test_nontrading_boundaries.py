@@ -1,7 +1,6 @@
 import ast
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 NONTRADING_ROOT = PROJECT_ROOT / "src" / "break100" / "nontrading"
 SOURCE_ROOT = PROJECT_ROOT / "src" / "break100"

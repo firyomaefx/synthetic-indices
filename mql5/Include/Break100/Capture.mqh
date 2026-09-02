@@ -1,6 +1,12 @@
 #ifndef BREAK100_CAPTURE_MQH
 #define BREAK100_CAPTURE_MQH
 
+// v2 filenames. The header is only written when the file is empty, so as
+// columns were added over time the v1 setup CSV accumulated three row widths
+// (34 / 39 / 44 fields) under a 34-field header, silently misaligning the box
+// feature columns. Versioning the name gives the new schema a matching header
+// and leaves the old file intact as history.
+
 // Pre-break warehouse: ticks + closed M1/M5/M15/M30/H4 + ARM setup + fill outcome.
 // No broker orders.
 
@@ -227,7 +233,7 @@ void B100CaptureInit(B100Capture &c, const bool on)
       B100CapOpenBar(c, i);
       // Do not seed last_bar_time to "now" — that skipped hours of closed bars after a stall.
      }
-   const int sh = B100CapOpenAppend("BREAK100_setup_" + c.symbol_key + ".csv");
+   const int sh = B100CapOpenAppend("BREAK100_setup_v2_" + c.symbol_key + ".csv");
    if(sh != INVALID_HANDLE)
      {
       if(FileSize(sh) == 0)
@@ -239,10 +245,12 @@ void B100CaptureInit(B100Capture &c, const bool on)
                    "m5_o", "m5_h", "m5_l", "m5_c",
                    "m15_o", "m15_h", "m15_l", "m15_c",
                    "m30_o", "m30_h", "m30_l", "m30_c",
-                   "h4_o", "h4_h", "h4_l", "h4_c");
+                   "h4_o", "h4_h", "h4_l", "h4_c",
+                   "touches_hi", "touches_lo", "close_loc", "compress", "h_vs_h4",
+                   "imp_dir", "imp_h", "imp_vs_box", "box_at", "phase");
       FileClose(sh);
      }
-   const int oh = B100CapOpenAppend("BREAK100_outcome_" + c.symbol_key + ".csv");
+   const int oh = B100CapOpenAppend("BREAK100_outcome_v2_" + c.symbol_key + ".csv");
    if(oh != INVALID_HANDLE)
      {
       if(FileSize(oh) == 0)
@@ -375,7 +383,7 @@ void B100CaptureSetup(B100Capture &c, const B100Box &b, const double bid, const 
    B100CopyOHLC(PERIOD_M15, m15o, m15h, m15l, m15c);
    B100CopyOHLC(PERIOD_M30, m30o, m30h, m30l, m30c);
    B100CopyOHLC(PERIOD_H4, h4o, h4h, h4l, h4c);
-   const int fh = B100CapOpenAppend("BREAK100_setup_" + c.symbol_key + ".csv");
+   const int fh = B100CapOpenAppend("BREAK100_setup_v2_" + c.symbol_key + ".csv");
    if(fh == INVALID_HANDLE)
       return;
    FileSeek(fh, 0, SEEK_END);
@@ -405,7 +413,7 @@ void B100CaptureOutcome(B100Capture &c, const B100Box &b, const string label, co
       return;
    s_bar = b.armed_bar;
    s_lab = label;
-   const int fh = B100CapOpenAppend("BREAK100_outcome_" + c.symbol_key + ".csv");
+   const int fh = B100CapOpenAppend("BREAK100_outcome_v2_" + c.symbol_key + ".csv");
    if(fh == INVALID_HANDLE)
       return;
    FileSeek(fh, 0, SEEK_END);

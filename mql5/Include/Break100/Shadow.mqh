@@ -24,7 +24,109 @@ struct B100ShadowBook
    double            tp_sell;
    string            last_event;
    double            last_pnl_pts;
+   // Context captured when the box armed, so a closed row can be written even
+   // though the box has moved on by then. Shadow.mqh is included before Box.mqh,
+   // so these are primitives rather than a B100Box reference.
+   datetime          armed_bar;
+   double            height;
+   double            spread_arm;
+   string            exec_decision;   // why the real EA did or did not trade it
+   int               touches_hi;
+   int               touches_lo;
+   double            close_loc;
+   double            compress;
+   double            h_vs_h4;
+   int               imp_dir;
+   string            phase;
   };
+
+string B100ShadowKey(void)
+  {
+   string s = _Symbol;
+   StringReplace(s, " ", "_");
+   return s;
+  }
+
+// Realised P&L and trade count live only in memory, so every reattach or
+// recompile silently restarted the ledger from zero. Persist them.
+void B100ShadowStateSave(const B100ShadowBook &b)
+  {
+   const int fh = FileOpen("BREAK100_shadow_state_" + B100ShadowKey() + ".txt",
+                           FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(fh == INVALID_HANDLE)
+      return;
+   FileWriteString(fh, DoubleToString(b.realized, 2) + "\n" + IntegerToString(b.trades) + "\n");
+   FileClose(fh);
+  }
+
+void B100ShadowStateLoad(B100ShadowBook &b)
+  {
+   const int fh = FileOpen("BREAK100_shadow_state_" + B100ShadowKey() + ".txt",
+                           FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(fh == INVALID_HANDLE)
+      return;
+   b.realized = StringToDouble(FileReadString(fh));
+   b.trades   = (int)StringToInteger(FileReadString(fh));
+   FileClose(fh);
+  }
+
+// Stamp the arm-time context onto the book. Called for EVERY armed box,
+// including ones execution declines — that is what makes the ledger a
+// counterfactual rather than a copy of the trade blotter.
+void B100ShadowTag(B100ShadowBook &b,
+                   const datetime armed_bar, const double height, const double spread_arm,
+                   const int touches_hi, const int touches_lo, const double close_loc,
+                   const double compress, const double h_vs_h4, const int imp_dir,
+                   const string phase)
+  {
+   b.armed_bar   = armed_bar;
+   b.height      = height;
+   b.spread_arm  = spread_arm;
+   b.touches_hi  = touches_hi;
+   b.touches_lo  = touches_lo;
+   b.close_loc   = close_loc;
+   b.compress    = compress;
+   b.h_vs_h4     = h_vs_h4;
+   b.imp_dir     = imp_dir;
+   b.phase       = phase;
+  }
+
+void B100ShadowSetDecision(B100ShadowBook &b, const string decision)
+  {
+   b.exec_decision = decision;
+  }
+
+// One row per closed virtual trade. Rows where exec_decision == "TRADED" are the
+// filtered strategy; all rows together are the unfiltered one. Both read off the
+// same ledger, so no second shadow book is needed.
+void B100ShadowLedgerRow(const B100ShadowBook &b, const int dir, const double entry,
+                         const double sl, const double tp, const double exit_px,
+                         const string reason)
+  {
+   const string name = "BREAK100_shadow_v1_" + B100ShadowKey() + ".csv";
+   const int fh = FileOpen(name, FILE_READ | FILE_WRITE | FILE_CSV | FILE_ANSI |
+                           FILE_COMMON | FILE_SHARE_READ, ',');
+   if(fh == INVALID_HANDLE)
+      return;
+   if(FileSize(fh) == 0)
+      FileWrite(fh, "closed_utc", "armed_bar", "exec_decision", "dir", "entry", "sl", "tp",
+                "exit_px", "reason", "r_multiple", "pnl_pts", "lots", "height", "spread_arm",
+                "touches_hi", "touches_lo", "close_loc", "compress", "h_vs_h4", "imp_dir",
+                "phase", "cum_realized", "trade_no");
+   else
+      FileSeek(fh, 0, SEEK_END);
+   const double risk = MathAbs(entry - sl);
+   const double r    = (risk > 0.0) ? ((exit_px - entry) * (double)dir / risk) : 0.0;
+   const double pt   = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   const double pts  = (pt > 0.0) ? ((exit_px - entry) * (double)dir / pt) : 0.0;
+   FileWrite(fh,
+             TimeToString(TimeGMT(), TIME_DATE | TIME_SECONDS),
+             (long)b.armed_bar, b.exec_decision, dir, entry, sl, tp, exit_px, reason,
+             DoubleToString(r, 4), DoubleToString(pts, 1), b.lots, b.height, b.spread_arm,
+             b.touches_hi, b.touches_lo, b.close_loc, b.compress, b.h_vs_h4, b.imp_dir,
+             b.phase, DoubleToString(b.realized, 2), b.trades);
+   FileClose(fh);
+  }
 
 void B100ShadowInit(B100ShadowBook &b)
   {
@@ -96,6 +198,10 @@ void B100ShadowClose(B100ShadowBook &b, const double price, const string why)
    const double pt = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    b.last_pnl_pts = (pt > 0.0) ? ((price - b.entry) / pt * (double)b.dir) : 0.0;
    b.last_event = why;
+   // Write the row here, while dir/entry/sl/lots are still populated — the
+   // clear below destroys them.
+   B100ShadowLedgerRow(b, b.dir, b.entry, b.sl, b.tp, price, why);
+   B100ShadowStateSave(b);
    b.open  = false;
    b.dir   = 0;
    b.lots  = 0.0;

@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from decimal import ROUND_FLOOR, Decimal
 
-
 HARD_MAX_RISK_FRACTION = Decimal("0.0025")
 HARD_ROLLING_24H_LOSS_STOP = Decimal("0.01")
 HARD_WEEKLY_LOSS_STOP = Decimal("0.03")
