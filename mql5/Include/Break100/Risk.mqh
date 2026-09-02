@@ -3,6 +3,7 @@
 
 // Hard ceilings. Configured values cannot exceed these.
 
+#define B100_MAX_CONCURRENT_POSITIONS 2
 #define B100_HARD_RISK_FRACTION   0.0025
 #define B100_HARD_LOSS_24H        0.01
 #define B100_HARD_LOSS_WEEK       0.03
@@ -24,7 +25,10 @@ string B100RiskGate(const B100RiskSnap &s)
       return "WEEKLY_LOSS_STOP";
    if(s.drawdown >= B100_HARD_DRAWDOWN)
       return "TOTAL_DRAWDOWN_STOP";
-   if(s.open_for_symbol >= 1)
+   // Two legs per setup (TP1 leg + runner) means two positions at once. This is
+   // a concurrency ceiling, not a risk ceiling — the loss ceilings above and the
+   // 0.25% fraction clamp below are untouched.
+   if(s.open_for_symbol >= B100_MAX_CONCURRENT_POSITIONS)
       return "MAX_POSITION_REACHED";
    return "RISK_GATE_PASSED";
   }

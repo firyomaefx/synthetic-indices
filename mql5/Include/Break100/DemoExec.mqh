@@ -1,10 +1,69 @@
 #ifndef BREAK100_DEMOEXEC_MQH
 #define BREAK100_DEMOEXEC_MQH
 
-// DEMO_AUTO adapter. OrderSend only after Mode permits AND demo account.
-// This header must not be used to trade real accounts.
+// Execution adapter. OrderSend only after Mode permits.
+//
+// Historically this refused any non-demo account outright. With the LIVE gate in
+// Mode.mqh that second check would silently swallow every live order while the
+// chart button reported ARMED, so the account test now consults a flag the EA
+// sets from B100LiveArmed(). It defaults false: nothing here reaches a real
+// account unless the EA explicitly says the full LIVE gate chain passed.
 
 #define B100_MAGIC 100165
+
+bool g_b100_exec_live_ok = false;
+
+bool B100ExecAccountOk(void)
+  {
+   return B100IsDemoAccount() || (g_b100_exec_live_ok && B100IsRealAccount());
+  }
+
+// Broker minimum distance for any pending/SL/TP, in price units.
+// BREAK100 reports SYMBOL_TRADE_STOPS_LEVEL = 1000 points = 10.00.
+double B100StopsLevel(void)
+  {
+   const long pts = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   return (pts > 0) ? (double)pts * _Point : 0.0;
+  }
+
+bool B100FarEnough(const double a, const double b)
+  {
+   const double need = B100StopsLevel();
+   return (need <= 0.0) || (MathAbs(a - b) >= need);
+  }
+
+double B100FreezePrice(const double px);   // defined below
+
+// Re-anchor a filled position's stop to a fixed distance from its ACTUAL fill.
+// A gapped entry otherwise leaves the stop where the box put it, so the real
+// risk exceeds the amount the position was sized for.
+bool B100ModifyPositionSl(const ulong ticket, const double sl, const double tp, string &err)
+  {
+   err = "";
+   if(!PositionSelectByTicket(ticket))
+     {
+      err = "POSITION_GONE";
+      return false;
+     }
+   MqlTradeRequest req;
+   MqlTradeResult res;
+   ZeroMemory(req);
+   ZeroMemory(res);
+   req.action   = TRADE_ACTION_SLTP;
+   req.symbol   = _Symbol;
+   req.position = ticket;
+   req.sl       = B100FreezePrice(sl);
+   req.tp       = (tp > 0.0) ? B100FreezePrice(tp) : 0.0;
+   ResetLastError();
+   if(!OrderSend(req, res) ||
+      (res.retcode != TRADE_RETCODE_DONE && res.retcode != TRADE_RETCODE_PLACED))
+     {
+      err = "SLTP_FAIL " + IntegerToString((int)res.retcode) +
+            " last=" + IntegerToString(GetLastError());
+      return false;
+     }
+   return true;
+  }
 
 bool B100DemoFilling(ENUM_ORDER_TYPE_FILLING &fill)
   {
@@ -73,9 +132,9 @@ bool B100DemoSend(const int dir,
                   string &err)
   {
    err = "";
-   if(!B100IsDemoAccount())
+   if(!B100ExecAccountOk())
      {
-      err = "DEMO_ACCOUNT_REQUIRED";
+      err = "ACCOUNT_NOT_PERMITTED";
       return false;
      }
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
@@ -165,9 +224,9 @@ bool B100DemoCancelTicket(const ulong ticket, string &err)
    err = "";
    if(ticket == 0)
       return true;
-   if(!B100IsDemoAccount())
+   if(!B100ExecAccountOk())
      {
-      err = "DEMO_ACCOUNT_REQUIRED";
+      err = "ACCOUNT_NOT_PERMITTED";
       return false;
      }
    MqlTradeRequest req;
@@ -218,9 +277,9 @@ bool B100DemoPlacePending(const ENUM_ORDER_TYPE typ,
   {
    err = "";
    ticket = 0;
-   if(!B100IsDemoAccount())
+   if(!B100ExecAccountOk())
      {
-      err = "DEMO_ACCOUNT_REQUIRED";
+      err = "ACCOUNT_NOT_PERMITTED";
       return false;
      }
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))

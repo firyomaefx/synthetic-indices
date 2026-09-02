@@ -24,6 +24,9 @@ struct B100LearnSample
    double            mae;
    double            hw;
    int               arm;
+   int               b_mfe;   // bars from fill to MFE — recovers path order
+   int               b_mae;   // bars from fill to MAE
+   int               strat;   // ENUM_B100_STRAT: 0 = CHANNEL, 1 = BOX_M30
   };
 
 struct B100LearnPolicy
@@ -49,13 +52,26 @@ struct B100Learner
    B100LearnSample   samples[];
    int               n;
    int               last_arm;
+   int               strat_filter;   // -1 = all; otherwise fit only this strategy's samples
    B100Arm           arms[B100_LEARN_ARMS];
   };
+
+// A sample belongs to the fit only if it came from the strategy being run.
+// Mixing them is what produced a box policy fitted on 159 channel BOUNCE rows.
+bool B100SampleInScope(const B100Learner &L, const int i, const int side)
+  {
+   if(L.strat_filter >= 0 && L.samples[i].strat != L.strat_filter)
+      return false;
+   if(side != 0 && L.samples[i].side != side)
+      return false;
+   return true;
+  }
 
 void B100LearnerInit(B100Learner &L)
   {
    L.n = 0;
    L.last_arm = 0;
+   L.strat_filter = -1;
    ArrayResize(L.samples, B100_LEARN_MAX);
    L.arms[0].id = "balanced"; L.arms[0].sl_r = 1.00; L.arms[0].tp1_r = 1.00; L.arms[0].tp2_r = 2.00; L.arms[0].tp3_r = 3.00;
    L.arms[1].id = "tight";    L.arms[1].sl_r = 0.85; L.arms[1].tp1_r = 0.80; L.arms[1].tp2_r = 1.50; L.arms[1].tp3_r = 2.20;
@@ -70,15 +86,30 @@ double B100Clamp(const double x, const double lo, const double hi)
 
 void B100FillDirGate(const B100Learner &L, B100LearnPolicy &p);
 
+// Counterfactual realised R for one sample under a candidate (sl_r, tp3_r).
+// MFE and MAE alone cannot say whether the stop preceded the target, so the
+// bar-index of each extreme decides the order. Before b_mfe/b_mae existed this
+// function charged a full stop-out to every trade that ever traded through the
+// stop level, even when the target had already been taken.
 double B100RealizedR(const B100LearnSample &s, const double sl_r, const double tp3_r)
   {
    const double hw = MathMax(s.hw, 1e-9);
    const double stop = sl_r * hw;
    const double tp3 = tp3_r * hw;
    const double cost = 0.12;
-   if(MathAbs(s.mae) >= stop)
-      return -1.0 - cost;
+   if(stop <= 0.0)
+      return -cost;
+   const bool stopped = (MathAbs(s.mae) >= stop);
    const double captured = MathMin(MathMax(0.0, s.mfe), tp3);
+   if(stopped && s.b_mae <= s.b_mfe)
+      return -1.0 - cost;                 // adverse extreme came first
+   if(captured >= tp3)
+      return tp3 / stop - cost;           // target taken before any stop
+   if(stopped)
+      return -1.0 - cost;                 // ran up short of target, then reversed into the stop
+   // Survived to horizon. Valuing this at MFE assumes an exit at the peak, which
+   // is optimistic; the authoritative after-cost R comes from the offline policy
+   // (see research harness), not from this on-chart fallback.
    return captured / stop - cost;
   }
 
@@ -94,7 +125,7 @@ int B100PickArm(const B100Learner &L, const int side)
      }
    for(int i = 0; i < L.n; i++)
      {
-      if(side != 0 && L.samples[i].side != side)
+      if(!B100SampleInScope(L, i, side))
          continue;
       n_side++;
       const int a = L.samples[i].arm;
@@ -152,7 +183,7 @@ void B100LearnerPolicy(B100Learner &L, const int side, B100LearnPolicy &p)
    int n_side = 0;
    for(int i = 0; i < L.n; i++)
      {
-      if(side != 0 && L.samples[i].side != side)
+      if(!B100SampleInScope(L, i, side))
          continue;
       n_side++;
       const double hw = MathMax(L.samples[i].hw, 1e-9);
@@ -202,7 +233,7 @@ void B100LearnerPolicy(B100Learner &L, const int side, B100LearnPolicy &p)
    int k = 0;
    for(int i = 0; i < L.n; i++)
      {
-      if(side != 0 && L.samples[i].side != side)
+      if(!B100SampleInScope(L, i, side))
          continue;
       sum += B100RealizedR(L.samples[i], p.sl_r, p.tp3_r);
       k++;
@@ -216,6 +247,8 @@ void B100FillDirGate(const B100Learner &L, B100LearnPolicy &p)
    int n_up = 0, n_dn = 0, n_fail = 0;
    for(int i = 0; i < L.n; i++)
      {
+      if(!B100SampleInScope(L, i, 0))
+         continue;
       if(L.samples[i].label == "BREAKOUT_UP")
          n_up++;
       else if(L.samples[i].label == "BREAKOUT_DOWN")
@@ -260,7 +293,9 @@ void B100SanitizeDirGate(B100LearnPolicy &p)
       p.dir_gate = "BOTH";
   }
 
-void B100LearnerObserve(B100Learner &L, const int side, const string label, const double mfe, const double mae, const double hw)
+void B100LearnerObserve(B100Learner &L, const int side, const string label,
+                        const double mfe, const double mae, const double hw,
+                        const int b_mfe, const int b_mae, const int strat)
   {
    if(L.n >= B100_LEARN_MAX)
      {
@@ -275,14 +310,20 @@ void B100LearnerObserve(B100Learner &L, const int side, const string label, cons
    L.samples[i].mae   = mae;
    L.samples[i].hw    = hw;
    L.samples[i].arm   = L.last_arm;
+   L.samples[i].b_mfe = b_mfe;
+   L.samples[i].b_mae = b_mae;
+   L.samples[i].strat = strat;
    L.n++;
   }
 
+// v2 schema. The v1 files were written while MAE was pinned to -MFE and while
+// box and channel samples shared one store, so they are deliberately NOT read
+// back: a new filename retires them without deleting the evidence.
 string B100LearnerFileName(void)
   {
    string sym = _Symbol;
    StringReplace(sym, " ", "_");
-   return "BREAK100_learn_" + sym + ".csv";
+   return "BREAK100_learn_v2_" + sym + ".csv";
   }
 
 void B100LearnerSave(const B100Learner &L)
@@ -290,9 +331,11 @@ void B100LearnerSave(const B100Learner &L)
    const int fh = FileOpen(B100LearnerFileName(), FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_COMMON, ',');
    if(fh == INVALID_HANDLE)
       return;
-   FileWrite(fh, "side", "label", "mfe", "mae", "hw", "arm");
+   FileWrite(fh, "side", "label", "mfe", "mae", "hw", "arm", "b_mfe", "b_mae", "strat");
    for(int i = 0; i < L.n; i++)
-      FileWrite(fh, L.samples[i].side, L.samples[i].label, L.samples[i].mfe, L.samples[i].mae, L.samples[i].hw, L.samples[i].arm);
+      FileWrite(fh, L.samples[i].side, L.samples[i].label, L.samples[i].mfe, L.samples[i].mae,
+                L.samples[i].hw, L.samples[i].arm, L.samples[i].b_mfe, L.samples[i].b_mae,
+                L.samples[i].strat);
    FileClose(fh);
   }
 
@@ -301,8 +344,8 @@ void B100LearnerLoad(B100Learner &L)
    const int fh = FileOpen(B100LearnerFileName(), FILE_READ | FILE_CSV | FILE_ANSI | FILE_COMMON, ',');
    if(fh == INVALID_HANDLE)
       return;
-   FileReadString(fh); FileReadString(fh); FileReadString(fh);
-   FileReadString(fh); FileReadString(fh); FileReadString(fh);
+   for(int h = 0; h < 9; h++)
+      FileReadString(fh);
    while(!FileIsEnding(fh) && L.n < B100_LEARN_MAX)
      {
       const int i = L.n;
@@ -312,6 +355,9 @@ void B100LearnerLoad(B100Learner &L)
       L.samples[i].mae   = FileReadNumber(fh);
       L.samples[i].hw    = FileReadNumber(fh);
       L.samples[i].arm   = (int)FileReadNumber(fh);
+      L.samples[i].b_mfe = (int)FileReadNumber(fh);
+      L.samples[i].b_mae = (int)FileReadNumber(fh);
+      L.samples[i].strat = (int)FileReadNumber(fh);
       if(L.samples[i].hw > 0.0)
          L.n++;
      }
@@ -322,7 +368,9 @@ string B100PolicyFileName(void)
   {
    string sym = _Symbol;
    StringReplace(sym, " ", "_");
-   return "BREAK100_policy_" + sym + ".csv";
+   // v2: the v1 policy (gate=SKIP, n=400) was fitted on contaminated mixed-strategy
+   // rows and must not steer trades until the research harness refits it.
+   return "BREAK100_policy_v2_" + sym + ".csv";
   }
 
 bool B100PolicyLoad(B100LearnPolicy &p)

@@ -1,0 +1,2 @@
+ready,source,n,arm,sl_r,tp1_r,tp2_r,tp3_r,mean_r,p_up,p_dn,p_fail,gate
+1,HF_TABULAR,400,3,0.920000,2.230000,3.404000,4.571500,1.363484,0.381625,0.003534,0.614841,SKIP

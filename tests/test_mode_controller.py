@@ -11,7 +11,6 @@ from break100.nontrading.state_machine import (
     TransitionDenied,
 )
 
-
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 
 

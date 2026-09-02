@@ -37,15 +37,27 @@ def clamp(x, lo, hi):
     return lo if x < lo else hi if x > hi else x
 
 
-def realized_r(mfe, mae, hw, sl_r, tp3_r):
+def realized_r(mfe, mae, hw, sl_r, tp3_r, b_mfe=0, b_mae=0):
+    """Counterfactual R, respecting the order the extremes occurred in.
+
+    Previously this returned a full stop-out whenever abs(mae) >= stop, with no
+    regard for whether the stop came before the target — scoring a trade that
+    banked its target and only later traded through the stop as a total loss.
+    Mirrors the corrected B100RealizedR in Learner.mqh.
+    """
     hw = hw if hw > 1e-9 else 1e-9
     stop = sl_r * hw
     tp3 = tp3_r * hw
-    if abs(mae) >= stop:
+    if stop <= 0.0:
+        return -COST
+    stopped = abs(mae) >= stop
+    captured = min(max(0.0, mfe), tp3)
+    if stopped and b_mae <= b_mfe:
         return -1.0 - COST
-    captured = max(0.0, mfe)
-    if captured > tp3:
-        captured = tp3
+    if captured >= tp3:
+        return tp3 / stop - COST
+    if stopped:
+        return -1.0 - COST
     return captured / stop - COST
 
 
@@ -274,6 +286,10 @@ def hf_direction_fit(rows):
     Xs = scaler.fit_transform(X)
     clf = LogisticRegression(max_iter=400, class_weight="balanced")
     clf.fit(Xs, y)
+    # NOTE: averaging predictions here discards per-box conditioning and yields
+    # the base rate. Kept only for the legacy p_up/p_dn/p_fail columns; the
+    # per-box model that actually gates trades now lives in
+    # src/break100/research/policy.py and ships coefficients to the EA.
     proba = clf.predict_proba(Xs).mean(axis=0)
     # map classes back
     classes = list(clf.classes_)
@@ -309,11 +325,11 @@ def policy_path(csv_path: Path) -> Path:
     while "unique_" in name:
         name = name.replace("unique_", "")
     if name.startswith("BREAK100_train_"):
-        name = "BREAK100_policy_" + name[len("BREAK100_train_") :]
+        name = "BREAK100_policy_v2_" + name[len("BREAK100_train_") :]
     elif name.startswith("BREAK100_learn_"):
-        name = "BREAK100_policy_" + name[len("BREAK100_learn_") :]
+        name = "BREAK100_policy_v2_" + name[len("BREAK100_learn_") :]
     else:
-        name = "BREAK100_policy_BREAK100"
+        name = "BREAK100_policy_v2_BREAK100"
     if not name.endswith(".csv"):
         name += ".csv"
     return csv_path.with_name(name)

@@ -11,7 +11,6 @@ from break100.risk.engine import (
     evaluate_risk_gate,
 )
 
-
 D = Decimal
 SPEC = SymbolRiskSpec(
     tick_size=D("0.1"),

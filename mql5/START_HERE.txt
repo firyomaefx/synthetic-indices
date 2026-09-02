@@ -1,4 +1,4 @@
-BREAK100 v2.19 — START HERE
+Break100 Box Trading v2.31 — START HERE
 ===========================
 
 What this is
@@ -16,7 +16,7 @@ Human boxes
   EA writes Common\\Files\\BREAK100_human_box_BREAK100.csv. Not B100_* names (those are EA).
 
 Attach
-  1. Compile BREAK100.mq5 in MetaEditor (F7). 0 errors.
+  1. Compile Break100 Box Trading.mq5 in MetaEditor (F7). 0 errors.
   2. Chart: BREAK100, timeframe M30 only.
   3. Attach EA. InpStrategy = BOX_M30. InpMode = OBSERVE (or SHADOW).
   4. Real account: AutoTrading OFF. Experts log: B100 Telegram ON  chart=M30

@@ -1,6 +1,19 @@
-#property copyright "BREAK100"
-#property version   "2.19"
-#property description "Tick fill for ENTRY. No TP1+TP2+TP3 spam on late catch-up. Live locked."
+#property copyright "Break100 Box Trading"
+#property version   "2.31"
+#property description "Break100 Box Trading — M30 box breakout with OCO rails."
+#property description "2.31  fixed orphaned BUY runner pending when SELL leg1 placement fails"
+#property description "2.30  Telegram audit: fixed dup TP/close alerts, runner-blind cancels, stale self-test ver"
+#property description "2.29  fixed history-box repaint (n_boxes not hist_n); button/Label diagnostics"
+#property description "2.28  fixed dashboard spacing bug that pushed LIVE/ENTER off-screen"
+#property description "2.27  chart dashboard mirrors the Telegram alert"
+// Older history (2.26 and earlier) dropped from here: MetaEditor caps the
+// combined length of all #property description lines around 500 chars and
+// silently truncates or warns past it. Full history stays in CHANGE_LOG.md.
+
+// Keep in step with #property version above. MQL5 exposes no macro for the
+// property, so this duplicate is the only way to report the build at runtime —
+// and the two drift apart the moment someone edits one and not the other.
+#define B100_VERSION "2.31"
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -15,7 +28,10 @@
 #include <Break100/Telegram.mqh>
 #include <Break100/Train.mqh>
 
-input ENUM_B100_MODE InpMode           = B100_OBSERVE; // OBSERVE/SHADOW/DEMO(demo account). LIVE rejected.
+input ENUM_B100_MODE InpMode           = B100_OBSERVE; // OBSERVE/SHADOW/DEMO(demo). LIVE needs the gates below.
+input bool           InpAllowLiveTrading = false;      // Gate 1: permit LIVE at all. Real money.
+input long           InpLiveAccountLogin = 0;          // Gate 2: must equal this account's login exactly
+input bool           InpShowLiveButton  = true;        // Gate 3: show the arm/disarm button on the chart
 input ENUM_B100_STRAT InpStrategy      = B100_STRAT_BOX_M30; // CHANNEL tick band, or M30 box breakout
 
 input ENUM_TIMEFRAMES InpBoxTF         = PERIOD_M30;   // Box timeframe
@@ -26,6 +42,10 @@ input double         InpBoxH4Frac      = 0.25;         // Box height ≤ this ×
 input double         InpBoxWiden       = 0.10;         // Older bar may poke at most this × height
 input double         InpImpulseK       = 0.0;          // 0 = do not require impulse (range-then-break). >0 = require long candle before box
 input double         InpBoxSlBuf       = 0.15;         // SL beyond opposite rail, in box heights
+input bool           InpTwoLegs        = true;         // Two legs per side: leg1 exits at TP1, runner rides to TP3
+input double         InpLotsPerLeg     = 0.01;         // Fixed volume per leg (both legs), matches sibling OCO EA
+input double         InpMinBoxSpreads  = 12.0;         // Min box height to TRADE, in spreads (0=off). Alerts unaffected.
+input double         InpMaxEntryGapR   = 0.0;          // Reject fills gapping > this many R past the stop (0=off)
 input int            InpBoxTimeout     = 10;           // Armed closes without fill → cancel
 input bool           InpBoxNoFade      = true;         // Never fade the pause
 
@@ -49,7 +69,7 @@ input double         InpTp2R           = 2.0;          // TP2 in R
 input double         InpTp3R           = 3.0;          // TP3 in R
 
 input bool           InpUseLearner     = true;         // Dynamic SL/TP + direction from closed labels
-input bool           InpDirLearner     = true;         // RL SL/TP only — OCO always both sides
+input bool           InpDirLearner     = true;         // Learned direction gate applies to orders only; both rails always alert
 input int            InpTrainHorizon   = 12;           // M30 bars to measure MFE/MAE after fill
 input bool           InpTrainLog       = true;         // Write BREAK100_train_*.csv (quality gated)
 input bool           InpShadowLedger   = true;         // Virtual fills in SHADOW
@@ -70,6 +90,13 @@ input bool           InpHarvestRects   = true;         // Save your drawn rectan
 #define LBL_SIG    "B100_signal"
 #define LBL_LV     "B100_levels"
 #define LBL_HUM    "B100_human"
+#define LBL_MODE   "B100_lbl_mode"
+#define LBL_BUY1   "B100_lbl_buy1"
+#define LBL_BUY2   "B100_lbl_buy2"
+#define LBL_SELL1  "B100_lbl_sell1"
+#define LBL_SELL2  "B100_lbl_sell2"
+#define LBL_BOXINFO "B100_lbl_boxinfo"
+#define LBL_MODEL  "B100_lbl_model"
 #define LV_ENTRY   "B100_lv_entry"
 #define LV_SL      "B100_lv_sl"
 #define LV_TP1     "B100_lv_tp1"
@@ -93,6 +120,8 @@ input bool           InpHarvestRects   = true;         // Save your drawn rectan
 #define BOX_ARR_SELL "B100_box_arr_sell"
 #define BOX_WATCH_L "B100_box_watch"
 #define HUD_BG     "B100_hud_bg"
+#define BTN_LIVE   "B100_btn_live"
+#define BTN_ENTER  "B100_btn_enter"
 
 #define CLR_INK      C'11,13,18'
 #define CLR_HUD      C'16,18,24'
@@ -145,6 +174,11 @@ B100Capture     g_capture;
 B100Episode     g_episode;
 int             g_ind_handle = INVALID_HANDLE;
 bool            g_ready      = false;
+// Bottom edge of the HUD dashboard, in pixels from the chart's top-right
+// corner. The dashboard's height varies with content (armed vs not, filled vs
+// not), so LIVE/ENTER anchor to this instead of a fixed Y — a fixed Y is what
+// let the dashboard grow tall enough to paint over the buttons and hide them.
+int             g_dash_bottom_y = 100;
 datetime        g_last_bar   = 0;
 string          g_last_event = "";
 string          g_init_note  = "";
@@ -155,8 +189,21 @@ string          g_last_alert = "";
 int             g_signal_seq = 0;
 datetime        g_last_learn_bar = 0;
 datetime        g_last_exec_bar  = 0;
-ulong           g_oco_buy_tk     = 0;
+ulong           g_oco_buy_tk     = 0;   // leg 1, exits at TP1
 ulong           g_oco_sell_tk    = 0;
+ulong           g_oco_buy_tk2    = 0;   // leg 2 (runner), rides to TP3
+ulong           g_oco_sell_tk2   = 0;
+// Runner bookkeeping. Positions are found by comment marker rather than ticket:
+// tickets do not survive a terminal restart, POSITION_COMMENT does.
+int             g_runner_stage   = 0;   // 0 none, 1 stop at breakeven, 2 stop at TP1
+// Manual (magic 0) trade tracking. Entry is remembered so the closing deal can
+// be written as one complete ledger row.
+bool            g_manual_entry_override = false;
+int             g_man_dir        = 0;
+double          g_man_entry      = 0;
+double          g_man_sl         = 0;
+double          g_man_lots       = 0;
+datetime        g_man_opened     = 0;
 bool            g_oco_armed      = false;
 string          g_oco_sid        = "";
 double          g_oco_buy_px     = 0;
@@ -164,6 +211,8 @@ double          g_oco_sell_px    = 0;
 double          g_oco_sl_buy     = 0;
 double          g_oco_sl_sell    = 0;
 double          g_oco_tp_buy     = 0;
+double          g_oco_tp3_buy    = 0;   // runner target, carried into the alert
+double          g_oco_tp3_sell   = 0;
 double          g_oco_tp_sell    = 0;
 double          g_oco_lots       = 0;
 int             g_oco_fill_dir   = 0;
@@ -185,7 +234,6 @@ void B100WatchGlyph(const string name, const datetime t, const double price,
                     const int code, const color clr, const ENUM_ANCHOR_POINT anc, const string tip);
 void B100HideWatchMarks();
 void B100PaintHud();
-int  B100TextPx(const string font, const int fs_pt, const string text, int &out_w);
 void B100HudLabel(const string name, const int x, const int y, const int fs,
                   const string font, const color clr, const string text);
 void B100ApplyChartSkin();
@@ -208,7 +256,7 @@ void B100TelegramFill(const int dir, const double px, const bool sibling_deleted
 void B100FibLatch(const int dir, const double entry, const double sl, const double tp1, const double tp2, const double tp3);
 void B100FibClear(void);
 void B100TelegramCancel(const string reason);
-void B100TelegramClose(const string why, const int dir, const double entry, const double exit_px, const double sl, const double tp, const double pts);
+void B100TelegramClose(const string why, const int dir, const double entry, const double exit_px, const double sl, const double tp, const double pts, const bool is_runner = false);
 void B100TelegramTp(const int level, const double px);
 void B100TgThreadSave(void);
 void B100TgThreadLoad(void);
@@ -218,17 +266,41 @@ void     B100StatusWriteGmt(const datetime t);
 void     B100MaybeStatus(void);
 void     B100TelegramStatus(void);
 void     B100TelegramSelfTest(void);
+double   B100MoneyRisk(const double dist, const double lots);
+void     B100ManageRunner(const double bid, const double ask);
+void     B100ManualDeal(const ulong deal);
+void     B100EnterButtonPaint(void);
+void     B100LiveButtonCreate(void);
+void     B100LiveButtonPaint(void);
+bool     B100LiveGatesOk(string &why);
+void     B100LogObjectDiagnostics(void);
 
 int OnInit()
   {
-   g_init_note = B100ApplyRequestedMode(g_mode, InpMode);
-   if(B100IsRealAccount() && (InpMode == B100_DEMO || InpMode == B100_LIVE))
-     {
-      g_mode.mode         = B100_OBSERVE;
-      g_mode.health       = B100_HEALTHY;
-      g_mode.block_reason = "REAL_ACCOUNT_DATA_ONLY";
-      g_init_note = "REAL_ACCOUNT_DATA_ONLY: demo/live inputs ignored — Observe/Shadow for ticks, no orders";
-     }
+   // Unmissable in the Experts tab, so the running build can always be
+   // identified without opening the properties dialog.
+   Print("========================================================");
+   // MQL5 has __DATETIME__ (a datetime value) rather than C's __DATE__/__TIME__.
+   Print("  Break100 Box Trading  v", B100_VERSION,
+         "   compiled ", TimeToString(__DATETIME__, TIME_DATE | TIME_MINUTES));
+   Print("  chart=", _Symbol, " ", EnumToString(Period()),
+         "   account=", AccountInfoInteger(ACCOUNT_LOGIN),
+         " (", (B100IsDemoAccount() ? "DEMO" : (B100IsRealAccount() ? "REAL" : "UNKNOWN")), ")");
+   Print("========================================================");
+
+   const bool live_account_ok = (InpLiveAccountLogin != 0 &&
+                                 InpLiveAccountLogin == AccountInfoInteger(ACCOUNT_LOGIN));
+   // B100ApplyRequestedMode is the single place mode is decided. It already
+   // requires a real account for LIVE, and already forces OBSERVE on any of its
+   // four gates failing (wrong account type, InpAllowLiveTrading off, unlisted
+   // login). A second override used to run right here and stomp the *pass*
+   // case back to OBSERVE whenever InpMode was DEMO or LIVE on a real account —
+   // a leftover from v1.42-v1.61, before the LIVE gate existed, when the
+   // account-type check was the only gate there was. It made LIVE structurally
+   // unreachable on a real account regardless of the chart button: the button
+   // could report ARMED while g_mode.mode had already been forced back to
+   // OBSERVE here, so B100BrokerOrderIntentPermitted() always returned false.
+   g_init_note = B100ApplyRequestedMode(g_mode, InpMode, InpAllowLiveTrading, live_account_ok);
 
    const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    const double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -236,9 +308,14 @@ int OnInit()
    B100PipeInit(g_pipe, mid, InpMadWindow, InpKalmanQ, InpKalmanRFloor, InpMadK,
                 InpPersistTicks, InpLabelHorizon);
    B100ShadowInit(g_shadow);
+   // Continue the shadow ledger across reattach/recompile instead of
+   // silently restarting realised P&L and the trade count from zero.
+   B100ShadowStateLoad(g_shadow);
    ZeroMemory(g_levels);
    ZeroMemory(g_fib);
    B100LearnerInit(g_learner);
+   // Fit only on samples from the strategy actually running.
+   g_learner.strat_filter = (int)InpStrategy;
    B100BoxInit(g_box);
    B100BoxScanHistory(g_box, InpBoxTF, InpBoxMinBars, InpBoxMaxBars, InpBoxAtrPeriod, InpBoxH4Frac, InpBoxWiden, InpImpulseK);
    B100CaptureInit(g_capture, true);
@@ -305,7 +382,26 @@ int OnInit()
       B100ReplayJournalMarks();
       B100RescaleJournalMarks();
      }
+   // Dashboard first, so B100LiveButtonCreate() positions its buttons using a
+   // real g_dash_bottom_y rather than the pre-paint placeholder.
    B100PaintPanel();
+   B100LiveButtonCreate();
+   // MT5's default OBJPROP_TEXT for a manually-inserted OBJ_LABEL is the
+   // literal word "Label". Nothing in this file creates one — every
+   // ObjectCreate(...,OBJ_LABEL,...) call site sets its text in the same
+   // breath — so an object with that exact name is stray clutter from
+   // outside the EA (a leftover manual insert, or another tool that ran on
+   // this chart). Narrow exact-name match only; touches nothing else.
+   if(ObjectFind(0, "Label") >= 0)
+      ObjectDelete(0, "Label");
+   // Two rounds of guessing (z-order in v2.27, DPI-dependent spacing in v2.28)
+   // each fixed a real bug but the LIVE/ENTER buttons still weren't visible in
+   // the follow-up screenshot, and "Label" survived the exact-match delete
+   // above. Rather than guess a third time, log ground truth to the Experts
+   // tab: exactly where the buttons think they are and what every "Label"-
+   // named object on the chart actually is, called right after this delete so
+   // it shows what's left once that pass has already run.
+   B100LogObjectDiagnostics();
    ChartSetInteger(0, CHART_EVENT_OBJECT_CREATE, true);
    ChartSetInteger(0, CHART_EVENT_OBJECT_DELETE, true);
    B100HarvestHumanBoxes();
@@ -338,6 +434,13 @@ void OnDeinit(const int reason)
    ObjectDelete(0, LBL_SIG);
    ObjectDelete(0, LBL_LV);
    ObjectDelete(0, LBL_HUM);
+   ObjectDelete(0, LBL_MODE);
+   ObjectDelete(0, LBL_BUY1);
+   ObjectDelete(0, LBL_BUY2);
+   ObjectDelete(0, LBL_SELL1);
+   ObjectDelete(0, LBL_SELL2);
+   ObjectDelete(0, LBL_BOXINFO);
+   ObjectDelete(0, LBL_MODEL);
    ObjectsDeleteAll(0, "B100H_ok_");
    ObjectDelete(0, LV_ENTRY);
    ObjectDelete(0, LV_SL);
@@ -359,6 +462,8 @@ void OnDeinit(const int reason)
    ObjectDelete(0, BOX_RES_LBL);
    ObjectDelete(0, BOX_SUP_LBL);
    ObjectDelete(0, HUD_BG);
+   ObjectDelete(0, BTN_LIVE);
+   ObjectDelete(0, BTN_ENTER);
    ObjectsDeleteAll(0, "B100_ev_");
    ObjectsDeleteAll(0, "B100_hx_");
    ObjectsDeleteAll(0, "B100_box");
@@ -405,14 +510,35 @@ void OnTick()
         {
          if(InpUseLearner)
             B100LearnerPolicy(g_learner, 0, g_policy);
-         B100BoxApplyDirGate(g_box, "BOTH");
+         B100BoxApplyDirGate(g_box, (InpUseLearner ? g_policy.dir_gate : "BOTH"));
          B100CaptureSetup(g_capture, g_box, bid, ask);
          if(InpTrainLog)
             B100TrainArm(g_episode, g_box, bid, ask, g_learner.last_arm);
+         // Shadow every armed box, unfiltered and in every mode. Arming here —
+         // before B100ArmBoxOco, which can decline for any of eight reasons —
+         // is what makes the ledger a counterfactual instead of a copy of the
+         // trade blotter. The decision string is stamped on afterwards.
+         if(InpShadowLedger)
+           {
+            B100ShadowTag(g_shadow, g_box.armed_bar, g_box.height, ask - bid,
+                          g_box.touches_hi, g_box.touches_lo, g_box.close_loc,
+                          g_box.compress, g_box.h_vs_h4, g_box.imp_dir, g_box.phase);
+            B100ShadowSetDecision(g_shadow, "PENDING");
+            B100FillBoxLevels(1, g_box.buy_stop, ask, bid);
+            const double s_sl_buy = g_levels.sl, s_tp_buy = g_levels.tp1;
+            B100FillBoxLevels(-1, g_box.sell_stop, ask, bid);
+            const double s_sl_sell = g_levels.sl, s_tp_sell = g_levels.tp1;
+            g_levels.valid = false;
+            const double s_lots = B100StopRiskLots(AccountInfoDouble(ACCOUNT_EQUITY),
+                                                   InpRiskFraction, g_box.buy_stop, s_sl_buy);
+            B100ShadowArmOco(g_shadow, g_box.buy_stop, g_box.sell_stop,
+                             s_sl_buy, s_sl_sell, s_tp_buy, s_tp_sell,
+                             MathMax(s_lots, SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN)));
+           }
          arm_now = true;
          Print("BREAK100 OCO both sides  BUY ", DoubleToString(g_box.buy_stop, _Digits),
                "  SELL ", DoubleToString(g_box.sell_stop, _Digits),
-               "  (RL SL/TP only, gate logged=", g_policy.dir_gate, ")");
+               "  (alerting both rails; execution gate=", g_policy.dir_gate, ")");
          g_box.just_armed = false;
         }
       if(labeled != "")
@@ -486,11 +612,17 @@ void OnTick()
       g_risk_code != "MAX_POSITION_REACHED")
       B100Halt(g_mode, g_risk_code);
 
+   // Keep the exec adapter in step with the mode gate. Without this the chart
+   // button reads ARMED while every live OrderSend is refused inside DemoExec.
+   g_b100_exec_live_ok = B100LiveArmed(g_mode);
    if(arm_now)
       B100ArmBoxOco(bid, ask);
 
+   // Shadow steps in EVERY mode so a continuous benchmark accrues even in
+   // OBSERVE (which a real account is forced into). Announcements below stay
+   // gated to SHADOW so OBSERVE does not send Telegram alerts for virtual fills.
    const bool shadow_was_open = g_shadow.open;
-   if(g_mode.mode == B100_SHADOW && InpShadowLedger)
+   if(InpShadowLedger)
       B100ShadowStep(bid, ask, labeled);
    const bool shadow_closed = (shadow_was_open && !g_shadow.open);
    if(g_mode.mode == B100_SHADOW && InpShadowLedger && g_shadow.last_event != "")
@@ -542,7 +674,9 @@ void OnTick()
            {
             if(InpTrainLog)
                B100TrainFail(g_episode, labeled);
-            B100LearnerObserve(g_learner, learn_side, labeled, learn_mfe, learn_mae, learn_hw);
+            // Never filled, so there is no fill-relative path: both extremes sit at bar 0.
+            B100LearnerObserve(g_learner, learn_side, labeled, learn_mfe, learn_mae, learn_hw,
+                               0, 0, (int)InpStrategy);
             B100LearnerSave(g_learner);
            }
          else if(InpStrategy == B100_STRAT_BOX_M30)
@@ -557,7 +691,8 @@ void OnTick()
            }
          else
            {
-            B100LearnerObserve(g_learner, learn_side, labeled, learn_mfe, learn_mae, learn_hw);
+            B100LearnerObserve(g_learner, learn_side, labeled, learn_mfe, learn_mae, learn_hw,
+                               0, 0, (int)InpStrategy);
             B100LearnerSave(g_learner);
            }
          g_last_learn_bar = g_box.armed_bar;
@@ -589,7 +724,16 @@ void OnTick()
      }
    const bool path_live = (InpTrainLog && g_episode.active && g_episode.tracking);
    const bool path_closed = (InpTrainLog && B100TrainStep(g_episode, bid, ask, InpTrainHorizon));
-   if(path_live || path_closed)
+   // Episode tracking (MFE/MAE for the learner) must keep running unconditionally
+   // in every mode, real position or not — only the Telegram SEND is gated. With
+   // a real two-leg position open, this price-driven progression fires on the
+   // same rail crossing that OnTradeTransaction's real DEAL_ENTRY_OUT fires on,
+   // producing a second, differently-worded "TP1 HIT" for the identical event.
+   // The real-fill message (leg1-vs-runner aware) is authoritative whenever a
+   // real position exists; episode-based alerts are the ONLY source when there
+   // is none (OBSERVE/SHADOW), so they stay live there.
+   const bool have_real_position = (B100CountMagicPositions() > 0);
+   if((path_live || path_closed) && !have_real_position)
      {
       const double px_now = (g_episode.side > 0 ? bid : ask);
       int max_hit = 0;
@@ -620,13 +764,14 @@ void OnTick()
       double pts = 0.0;
       if(pt > 0.0 && g_episode.entry > 0.0)
          pts = (exit_px - g_episode.entry) / pt * (double)g_episode.side;
-      if(!skip_sl)
+      if(!skip_sl && !have_real_position)
          B100TelegramClose(g_episode.exit_why, g_episode.side, g_episode.entry, exit_px,
                            g_episode.sl, g_episode.tp1, pts);
       if(g_episode.quality == 1 && g_episode.hw > 0.0)
         {
          B100LearnerObserve(g_learner, g_episode.side, g_episode.label,
-                            g_episode.mfe, g_episode.mae, g_episode.hw);
+                            g_episode.mfe, g_episode.mae, g_episode.hw,
+                            g_episode.bars_to_mfe, g_episode.bars_to_mae, (int)InpStrategy);
          B100LearnerSave(g_learner);
          Print("BREAK100 train closed  exit=", g_episode.exit_why,
                " mfe=", DoubleToString(g_episode.mfe, _Digits),
@@ -637,9 +782,12 @@ void OnTick()
          Print("BREAK100 train discarded  q=", g_episode.quality, " ", g_episode.q_reason);
       B100FibClear();
      }
+   B100ManageRunner(bid, ask);
    B100UpdateLines();
    B100PaintLevels();
    B100PaintPanel();
+   B100LiveButtonPaint();
+   B100EnterButtonPaint();
    B100LogNewBar(labeled);
   }
 
@@ -716,9 +864,131 @@ string B100TgKey(const string kind)
 
 void B100OcoClearTickets(void)
   {
-   g_oco_buy_tk  = 0;
-   g_oco_sell_tk = 0;
-   g_oco_armed   = false;
+   g_oco_buy_tk   = 0;
+   g_oco_sell_tk  = 0;
+   g_oco_buy_tk2  = 0;
+   g_oco_sell_tk2 = 0;
+   g_runner_stage = 0;
+   g_oco_armed    = false;
+  }
+
+// Record a manual (magic 0) deal into the shadow ledger so the operator's own
+// discretion becomes labelled training data. Entry deals are remembered; the
+// closing deal writes one row using the same 23-column schema as the
+// counterfactual rows, so both are directly comparable.
+void B100ManualDeal(const ulong deal)
+  {
+   const long entry_type = HistoryDealGetInteger(deal, DEAL_ENTRY);
+   const long deal_type  = HistoryDealGetInteger(deal, DEAL_TYPE);
+   const double px       = HistoryDealGetDouble(deal, DEAL_PRICE);
+   if(px <= 0.0)
+      return;
+
+   if(entry_type == DEAL_ENTRY_IN)
+     {
+      g_man_dir    = (deal_type == DEAL_TYPE_BUY) ? 1 : -1;
+      g_man_entry  = px;
+      g_man_sl     = HistoryDealGetDouble(deal, DEAL_SL);
+      g_man_lots   = HistoryDealGetDouble(deal, DEAL_VOLUME);
+      g_man_opened = (datetime)HistoryDealGetInteger(deal, DEAL_TIME);
+      Print("B100 MANUAL entry ", (g_man_dir > 0 ? "BUY " : "SELL "),
+            DoubleToString(px, _Digits), " lots=", DoubleToString(g_man_lots, 2),
+            " sl=", DoubleToString(g_man_sl, _Digits), " — tracking for the ledger");
+      return;
+     }
+   if(entry_type != DEAL_ENTRY_OUT || g_man_dir == 0)
+      return;
+
+   // Risk basis: the stop the operator actually set. If none, fall back to the
+   // current box geometry so the row still carries a comparable R.
+   double risk = (g_man_sl > 0.0) ? MathAbs(g_man_entry - g_man_sl) : 0.0;
+   if(risk <= 0.0 && g_box.height > 0.0)
+      risk = g_box.height * (1.0 + MathMax(InpBoxSlBuf, 0.0));
+
+   B100ShadowBook m;
+   B100ShadowInit(m);
+   m.lots       = g_man_lots;
+   m.height     = g_box.height;
+   m.spread_arm = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   m.armed_bar  = g_box.armed_bar;
+   m.phase      = g_box.phase;
+   m.touches_hi = g_box.touches_hi;
+   m.touches_lo = g_box.touches_lo;
+   m.close_loc  = g_box.close_loc;
+   m.compress   = g_box.compress;
+   m.h_vs_h4    = g_box.h_vs_h4;
+   m.imp_dir    = g_box.imp_dir;
+   m.exec_decision = "MANUAL";
+   const double sl_for_r = (risk > 0.0) ? (g_man_entry - g_man_dir * risk) : g_man_sl;
+   B100ShadowLedgerRow(m, g_man_dir, g_man_entry, sl_for_r, 0.0, px, "MANUAL_CLOSE");
+   Print("B100 MANUAL closed ", DoubleToString(px, _Digits),
+         "  R=", (risk > 0.0 ? DoubleToString((px - g_man_entry) * g_man_dir / risk, 3) : "n/a"),
+         " — written to shadow ledger");
+   g_man_dir = 0;
+   g_man_entry = 0;
+   g_man_sl = 0;
+   g_man_lots = 0;
+  }
+
+// Currency risk for a stop distance and volume, so the alert states what a leg
+// actually costs instead of leaving the reader to work it out.
+double B100MoneyRisk(const double dist, const double lots)
+  {
+   const double tick = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   const double tval = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   if(tick <= 0.0 || tval <= 0.0 || dist <= 0.0)
+      return 0.0;
+   return dist / tick * tval * lots;
+  }
+
+// Runner management, ported from the sibling BREAK100_TELEGRAM_OCO_EA.
+// TP1 touched  -> runner stop to entry + costs (risk removed)
+// TP2 touched  -> runner stop to TP1          (profit locked)
+// The runner's own target stays at TP3. Identified by its ":R" comment marker so
+// it is still found after a restart, when the ticket is long gone.
+void B100ManageRunner(const double bid, const double ask)
+  {
+   if(!InpTwoLegs || g_oco_fill_dir == 0 || !g_levels.valid)
+      return;
+   const int dir = g_oco_fill_dir;
+   const bool tp1_touched = (dir > 0) ? (bid >= g_levels.tp1) : (ask <= g_levels.tp1);
+   if(!tp1_touched)
+      return;
+   const bool tp2_touched = (dir > 0) ? (bid >= g_levels.tp2) : (ask <= g_levels.tp2);
+   const int want_stage = tp2_touched ? 2 : 1;
+   if(want_stage <= g_runner_stage)
+      return;
+
+   for(int i = PositionsTotal() - 1; i >= 0; --i)
+     {
+      const ulong ticket = PositionGetTicket(i);
+      if(ticket == 0 || !PositionSelectByTicket(ticket))
+         continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol)
+         continue;
+      if((long)PositionGetInteger(POSITION_MAGIC) != B100_MAGIC)
+         continue;
+      if(StringFind(PositionGetString(POSITION_COMMENT), ":R") < 0)
+         continue;
+
+      const double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+      const double costs = MathMax(ask - bid, _Point) * 2.0;
+      const double want  = (want_stage == 2) ? g_levels.tp1 : (entry + dir * costs);
+      const double cur   = PositionGetDouble(POSITION_SL);
+      // Only ever tighten. A wider stop would silently increase risk.
+      if(cur > 0.0 && ((dir > 0 && want <= cur) || (dir < 0 && want >= cur)))
+         continue;
+      string err = "";
+      if(B100ModifyPositionSl(ticket, want, g_levels.tp3, err))
+        {
+         g_runner_stage = want_stage;
+         Print("B100 runner stage ", want_stage,
+               (want_stage == 2 ? " — stop to TP1 " : " — stop to breakeven "),
+               DoubleToString(want, _Digits));
+        }
+      else
+         Print("B100 runner stop move FAILED ", err);
+     }
   }
 
 void B100TgThreadSave(void)
@@ -774,21 +1044,51 @@ void B100TelegramWatch(void)
       g_tg_tp_announced = 0;
       g_tg_thread_bar = g_box.armed_bar;
      }
+   const double lots_per_leg = MathMax(InpLotsPerLeg, SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN));
+   const double spread_now   = MathMax(SymbolInfoDouble(_Symbol, SYMBOL_ASK) -
+                                       SymbolInfoDouble(_Symbol, SYMBOL_BID), _Point);
+   const double h_spreads    = (spread_now > 0.0) ? g_box.height / spread_now : 0.0;
+
    string msg = B100TgSigHead(true);
-   msg += "👀 BREAK100  WATCH\n";
+   msg += "BREAK100  WATCH\n";
    msg += _Symbol + "  M30\n";
    if(g_oco_buy_px > 0.0)
      {
-      msg += "🟢 BUY STOP  " + B100Px(g_oco_buy_px) + "\n";
-      msg += "   SL " + B100Px(g_oco_sl_buy);
-      msg += "   TP1 " + B100Px(g_oco_tp_buy) + "\n";
+      msg += "BUY STOP  " + B100Px(g_oco_buy_px) + "\n";
+      msg += "   SL  " + B100Px(g_oco_sl_buy) + "   risk " +
+             DoubleToString(B100MoneyRisk(MathAbs(g_oco_buy_px - g_oco_sl_buy), lots_per_leg), 2) +
+             "/leg\n";
+      msg += "   TP1 " + B100Px(g_oco_tp_buy);
+      if(g_oco_tp3_buy > 0.0 && g_oco_tp3_buy != g_oco_tp_buy)
+         msg += "   TP3 " + B100Px(g_oco_tp3_buy) + " (runner)";
+      msg += "\n";
      }
    if(g_oco_sell_px > 0.0)
      {
-      msg += "🔴 SELL STOP  " + B100Px(g_oco_sell_px) + "\n";
-      msg += "   SL " + B100Px(g_oco_sl_sell);
-      msg += "   TP1 " + B100Px(g_oco_tp_sell) + "\n";
+      msg += "SELL STOP  " + B100Px(g_oco_sell_px) + "\n";
+      msg += "   SL  " + B100Px(g_oco_sl_sell) + "   risk " +
+             DoubleToString(B100MoneyRisk(MathAbs(g_oco_sell_px - g_oco_sl_sell), lots_per_leg), 2) +
+             "/leg\n";
+      msg += "   TP1 " + B100Px(g_oco_tp_sell);
+      if(g_oco_tp3_sell > 0.0 && g_oco_tp3_sell != g_oco_tp_sell)
+         msg += "   TP3 " + B100Px(g_oco_tp3_sell) + " (runner)";
+      msg += "\n";
      }
+   msg += "\nbox " + DoubleToString(g_box.height, _Digits) +
+          " = " + DoubleToString(h_spreads, 1) + "x spread";
+   if(InpMinBoxSpreads > 0.0)
+      msg += (h_spreads >= InpMinBoxSpreads ? "  [above trade floor]" : "  [BELOW trade floor]");
+   msg += "\n";
+   // Sample size travels with the estimate on purpose: a probability from 14
+   // closed trades and one from 400 must not read the same.
+   msg += "model n=" + IntegerToString(g_policy.n) + " (" + g_policy.source + ")";
+   if(g_policy.mean_r != 0.0)
+      msg += "  measured " + DoubleToString(g_policy.mean_r, 3) + "R/trade";
+   msg += "\n";
+   msg += (B100BrokerOrderIntentPermitted(g_mode)
+           ? "auto-trade ON (" + B100ModeName(g_mode.mode) + ")"
+           : "auto-trade OFF (" + B100ModeName(g_mode.mode) + ") - manual only");
+   msg += "\n";
    if(g_oco_buy_px > 0.0 && g_oco_sell_px > 0.0)
       msg += "OCO: first fill cancels the other.";
    else
@@ -823,6 +1123,23 @@ void B100TelegramFill(const int dir, const double px, const bool sibling_deleted
         {
          B100DemoCancelTicket(g_oco_buy_tk, err);
          g_oco_buy_tk = 0;
+        }
+     }
+   // This tick-based path typically reacts to a crossed rail before the
+   // broker's async DEAL_ENTRY_IN confirmation reaches OnTradeTransaction, so
+   // it must retire the runner leg too, not just leg 1 — otherwise the losing
+   // side's runner pending is left resting until OnTradeTransaction catches up.
+   if(sibling_deleted && B100BrokerOrderIntentPermitted(g_mode))
+     {
+      if(dir > 0 && g_oco_sell_tk2 != 0)
+        {
+         B100DemoCancelTicket(g_oco_sell_tk2, err);
+         g_oco_sell_tk2 = 0;
+        }
+      else if(dir < 0 && g_oco_buy_tk2 != 0)
+        {
+         B100DemoCancelTicket(g_oco_buy_tk2, err);
+         g_oco_buy_tk2 = 0;
         }
      }
    double sl = 0, tp1 = 0, tp2 = 0, tp3 = 0;
@@ -899,20 +1216,27 @@ void B100TelegramTp(const int level, const double px)
      }
   }
 
-void B100TelegramClose(const string why, const int dir, const double entry, const double exit_px, const double sl, const double tp, const double pts)
+void B100TelegramClose(const string why, const int dir, const double entry, const double exit_px, const double sl, const double tp, const double pts, const bool is_runner)
   {
+   // With two legs, "CLOSE" now fires twice per trade — once when leg 1 hits
+   // TP1 (the runner is still open at that point) and again whenever the
+   // runner itself closes. Without is_runner, leg 1's own TP1 read as generic
+   // "TP HIT" (ambiguous with a full close) and a runner closing via its
+   // trailed stop — which by then may sit at breakeven or TP1, i.e. flat or
+   // profitable — read as "SL HIT", which looks like a loss even when the pts
+   // result printed below it is positive.
    B100FibClear();
    string tag = why;
    string face = "⚪";
    if(why == "CLOSE_SL" || why == "SL")
      {
-      tag = "SL HIT";
-      face = "❌";
+      tag = is_runner ? "RUNNER STOP" : "SL HIT";
+      face = is_runner ? "🏁" : "❌";
      }
    else if(why == "CLOSE_TP" || why == "TP" || why == "TP1" || why == "TP2" || why == "TP3" ||
            why == "TP3" || why == "TP2_H" || why == "TP1_H")
      {
-      tag = "TP HIT";
+      tag = is_runner ? "RUNNER TP" : "TP1 HIT — runner continues";
       face = "✅";
       if(why == "TP2_H")
          tag = "TP2 HIT";
@@ -929,7 +1253,7 @@ void B100TelegramClose(const string why, const int dir, const double entry, cons
    else if(StringFind(why, "CLOSE_") == 0)
       tag = StringSubstr(why, 6);
    const string side = (dir > 0) ? "BUY" : ((dir < 0) ? "SELL" : "?");
-   const string key = B100TgKey("CLOSE_" + tag);
+   const string key = B100TgKey("CLOSE_" + tag + (is_runner ? "_R" : ""));
    string msg = B100TgSigHead(false);
    msg += face + " BREAK100  " + tag + "  " + side + "\n";
    msg += _Symbol + "\n";
@@ -948,7 +1272,8 @@ void B100TelegramClose(const string why, const int dir, const double entry, cons
       msg += "Result  flat";
    if(!InpTelegram || !B100TgChart())
       return;
-   if((tag == "TP1 HIT" || tag == "TP2 HIT" || tag == "TP3 HIT" || tag == "TP HIT") && g_tg_tp_announced >= 1)
+   if(!is_runner && (tag == "TP1 HIT" || tag == "TP2 HIT" || tag == "TP3 HIT" ||
+                     tag == "TP1 HIT — runner continues") && g_tg_tp_announced >= 1)
       return;
    B100TelegramOnceReply(key, msg, B100TgParent());
   }
@@ -1001,7 +1326,8 @@ void B100TelegramStatus(void)
    msg += "📒 unique " + IntegerToString(n_u);
    msg += "  ❌" + IntegerToString(n_sl);
    msg += "  ✅TP3 " + IntegerToString(n_tp3) + "\n";
-   msg += "🧠 policy n=" + IntegerToString(g_policy.n) + "  OCO both\n";
+   msg += "🧠 policy n=" + IntegerToString(g_policy.n) + "  gate=" +
+          (g_box.ready ? g_box.dir_gate : "n/a") + "\n";
    if(g_human_n > 0)
       msg += "📐 human boxes " + IntegerToString(g_human_n) + "\n";
 
@@ -1048,13 +1374,16 @@ void B100TelegramSelfTest(void)
       Print("B100 Telegram TEST FAIL — missing Common\\Files\\BREAK100_telegram.txt (token= and chat=)");
       return;
      }
-   string msg = "🧪 BREAK100  v2.19  Telegram OK  M30 only\n";
+   // B100_VERSION so this self-test can never go stale the way the previous
+   // hardcoded "v2.19" did — it survived ten releases without being touched.
+   string msg = "🧪 BREAK100  v" + B100_VERSION + "  Telegram OK  M30 only\n";
    msg += _Symbol + "  " + B100ModeName(g_mode.mode) + "\n";
    msg += "\nYou will get these alerts:\n";
-   msg += "👀 WATCH     both stops + SL/TP1\n";
+   msg += "👀 WATCH        both stops, SL, TP1, TP3 (runner)\n";
    msg += "🟢 ENTRY BUY    🔴 ENTRY SELL\n";
-   msg += "❌ SL HIT\n";
-   msg += "✅ TP HIT\n";
+   msg += "✅ TP1 HIT — runner continues\n";
+   msg += "🏁 RUNNER STOP    ✅ RUNNER TP\n";
+   msg += "❌ SL HIT (no runner reached)\n";
    msg += "⏰ TIME EXIT    ⚪ CANCEL\n";
    msg += "\nThis is a one-time test. No live orders.";
    if(B100TelegramOnce("BOOT|1.85|" + _Symbol, msg))
@@ -1079,6 +1408,7 @@ void B100MaybeStatus(void)
 void B100CancelBoxOco(const string reason)
   {
    if(!g_oco_armed && g_oco_buy_tk == 0 && g_oco_sell_tk == 0 &&
+      g_oco_buy_tk2 == 0 && g_oco_sell_tk2 == 0 &&
       !g_shadow.pend_buy && !g_shadow.pend_sell)
       return;
    string err = "";
@@ -1088,6 +1418,10 @@ void B100CancelBoxOco(const string reason)
          B100DemoCancelTicket(g_oco_buy_tk, err);
       if(g_oco_sell_tk != 0)
          B100DemoCancelTicket(g_oco_sell_tk, err);
+      if(g_oco_buy_tk2 != 0)
+         B100DemoCancelTicket(g_oco_buy_tk2, err);
+      if(g_oco_sell_tk2 != 0)
+         B100DemoCancelTicket(g_oco_sell_tk2, err);
       B100DemoCancelAllPendings();
      }
    B100ShadowCancelOco(g_shadow);
@@ -1104,16 +1438,35 @@ void B100ArmBoxOco(const double bid, const double ask)
    if(g_risk_code != "RISK_GATE_PASSED" && g_risk_code != "")
      {
       if(g_risk_code != "MAX_POSITION_REACHED")
+         B100ShadowSetDecision(g_shadow, "SKIP_RISK");
          return;
      }
    if(B100CountMagicPositions() > 0)
+      B100ShadowSetDecision(g_shadow, "SKIP_OPEN");
       return;
 
-   const bool want_buy  = g_box.buy_stop > 0.0;
-   const bool want_sell = g_box.sell_stop > 0.0;
-   if(!want_buy || !want_sell)
+   // Box-size gate. Gap overshoot measured in R scales inversely with box size:
+   // a 100-point gap is 2.2R against a 46-point stop but 0.87R against a 115-point
+   // one. Backtest over 42 days of ticks: trading only boxes >= 60 moved M30
+   // expectancy from -0.164R to -0.040R and halved drawdown. Alerts are NOT gated.
+   const double spread_now = MathMax(ask - bid, _Point);
+   if(!g_manual_entry_override && InpMinBoxSpreads > 0.0 &&
+      g_box.height < InpMinBoxSpreads * spread_now)
      {
-      Print("B100 OCO skip — need both stops");
+      Print("B100 OCO skip — box ", DoubleToString(g_box.height, _Digits),
+            " below trade floor ", DoubleToString(InpMinBoxSpreads * spread_now, _Digits),
+            " (", DoubleToString(InpMinBoxSpreads, 1), " spreads). Alert still sent.");
+      B100ShadowSetDecision(g_shadow, "SKIP_SIZE");
+      return;
+     }
+
+   // Execution side is gated by the learned policy; detection/alerting is not.
+   const bool want_buy  = (g_box.buy_stop > 0.0) && g_box.exec_buy;
+   const bool want_sell = (g_box.sell_stop > 0.0) && g_box.exec_sell;
+   if(!want_buy && !want_sell)
+     {
+      Print("B100 OCO skip — no side permitted  gate=", g_box.dir_gate);
+      B100ShadowSetDecision(g_shadow, "SKIP_GATE");
       return;
      }
 
@@ -1135,34 +1488,61 @@ void B100ArmBoxOco(const double bid, const double ask)
    g_levels.valid = false;
 
    if(want_buy && sl_buy <= 0.0)
+      B100ShadowSetDecision(g_shadow, "SKIP_SL_INVALID");
       return;
    if(want_sell && sl_sell <= 0.0)
+      B100ShadowSetDecision(g_shadow, "SKIP_SL_INVALID");
       return;
    if(want_buy && want_sell && buy_px <= sell_px)
+      B100ShadowSetDecision(g_shadow, "SKIP_RAILS_CROSSED");
       return;
    if(want_buy && !(ask < buy_px))
      {
       Print("B100 skip — ask already through BUY STOP");
+      B100ShadowSetDecision(g_shadow, "SKIP_LATE");
       return;
      }
    if(want_sell && !(bid > sell_px))
      {
       Print("B100 skip — bid already through SELL STOP");
+      B100ShadowSetDecision(g_shadow, "SKIP_LATE");
       return;
      }
 
-   const double eq = AccountInfoDouble(ACCOUNT_EQUITY);
-   double lots = 0.0;
-   if(want_buy)
-      lots = B100StopRiskLots(eq, InpRiskFraction, buy_px, sl_buy);
-   if(want_sell)
+   // Broker minimum distance. BREAK100 reports SYMBOL_TRADE_STOPS_LEVEL = 1000
+   // points = 10.00 price units; nothing in this EA honoured it before, so a
+   // tight box produced pendings the server rejects outright.
+   const double need = B100StopsLevel();
+   if(need > 0.0)
      {
-      const double ls = B100StopRiskLots(eq, InpRiskFraction, sell_px, sl_sell);
-      lots = (lots > 0.0) ? MathMin(lots, ls) : ls;
+      if(want_buy && (!B100FarEnough(buy_px, ask) || !B100FarEnough(buy_px, sl_buy) ||
+                      (tp_buy > 0.0 && !B100FarEnough(buy_px, tp_buy))))
+        {
+         Print("B100 OCO skip — BUY leg inside broker stops level ",
+               DoubleToString(need, _Digits));
+         B100ShadowSetDecision(g_shadow, "SKIP_STOPS_LEVEL");
+         return;
+        }
+      if(want_sell && (!B100FarEnough(sell_px, bid) || !B100FarEnough(sell_px, sl_sell) ||
+                       (tp_sell > 0.0 && !B100FarEnough(sell_px, tp_sell))))
+        {
+         Print("B100 OCO skip — SELL leg inside broker stops level ",
+               DoubleToString(need, _Digits));
+         B100ShadowSetDecision(g_shadow, "SKIP_STOPS_LEVEL");
+         return;
+        }
      }
+
+   // Fixed volume per leg. This deliberately sidesteps per-leg risk splitting:
+   // with 0.01 on each leg the combined exposure is known and tiny, and the
+   // 0.25% clamp in Risk.mqh is never the binding constraint. Risk-derived
+   // sizing is still computed for the alert, just not used for the order.
+   const double vmin = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   const double lots = MathMax(InpLotsPerLeg, vmin);
    if(lots <= 0.0)
      {
       Print("B100 OCO skip — lots=0");
+      B100ShadowSetDecision(g_shadow, "SKIP_LOTS");
       return;
      }
 
@@ -1178,46 +1558,83 @@ void B100ArmBoxOco(const double bid, const double ask)
    g_oco_fill_px  = 0;
    g_oco_armed    = true;
 
-   if(g_mode.mode == B100_SHADOW && InpShadowLedger)
-      B100ShadowArmOco(g_shadow, buy_px, sell_px, sl_buy, sl_sell, tp_buy, tp_sell, lots);
+   // Shadow is armed in OnTick for every box, filtered or not. Arming it here
+   // as well would only ever record boxes that survived all eight gates above.
 
    if(B100BrokerOrderIntentPermitted(g_mode))
      {
       B100DemoCancelAllPendings();
       string err = "";
-      ulong tb = 0, ts = 0;
+      ulong tb = 0, ts = 0, tb2 = 0, ts2 = 0;
+      // Runner target: TP3 when we have levels, else fall back to the leg-1 TP
+      // so a runner is never sent without a target.
+      const double run_tp_buy  = (g_levels.valid && g_levels.tp3 > 0.0) ? g_levels.tp3 : tp_buy;
+      const double run_tp_sell = (g_levels.valid && g_levels.tp3 > 0.0) ? g_levels.tp3 : tp_sell;
+      // Only advertise a runner target when a runner leg will actually be
+      // placed below. Setting these unconditionally meant the WATCH alert and
+      // the dashboard both claimed a "TP3 (runner)" leg with InpTwoLegs=false,
+      // describing an order that was never sent.
+      g_oco_tp3_buy  = InpTwoLegs ? run_tp_buy : 0.0;
+      g_oco_tp3_sell = InpTwoLegs ? run_tp_sell : 0.0;
       if(want_buy)
         {
-         if(!B100DemoPlacePending(ORDER_TYPE_BUY_STOP, buy_px, sl_buy, tp_buy, lots, g_oco_sid + "B", tb, err))
+         if(!B100DemoPlacePending(ORDER_TYPE_BUY_STOP, buy_px, sl_buy, tp_buy, lots, g_oco_sid + ":B1", tb, err))
            {
             Print("B100 OCO BUY_STOP failed ", err);
             B100OcoClearTickets();
             B100TelegramWatch();
             return;
            }
+         if(InpTwoLegs)
+           {
+            string err_r = "";
+            if(!B100DemoPlacePending(ORDER_TYPE_BUY_STOP, buy_px, sl_buy, run_tp_buy, lots,
+                                     g_oco_sid + ":R:B2", tb2, err_r))
+               Print("B100 runner BUY leg failed ", err_r, " — leg 1 continues alone");
+           }
         }
       if(want_sell)
         {
          string err_s = "";
-         if(!B100DemoPlacePending(ORDER_TYPE_SELL_STOP, sell_px, sl_sell, tp_sell, lots, g_oco_sid + "S", ts, err_s))
+         if(!B100DemoPlacePending(ORDER_TYPE_SELL_STOP, sell_px, sl_sell, tp_sell, lots, g_oco_sid + ":S1", ts, err_s))
            {
             Print("B100 OCO SELL_STOP failed ", err_s);
             string cerr = "";
             if(tb != 0)
                B100DemoCancelTicket(tb, cerr);
+            // tb2 (the BUY runner) can already be live at this point — it is
+            // placed right after BUY leg 1, before SELL is ever attempted. This
+            // was previously left uncancelled: an orphaned, untracked pending
+            // that no EA state pointed to, resting on the broker until the next
+            // box's B100DemoCancelAllPendings happened to sweep it up.
+            if(tb2 != 0)
+               B100DemoCancelTicket(tb2, cerr);
             B100OcoClearTickets();
             B100TelegramWatch();
             return;
            }
         }
-      g_oco_buy_tk  = tb;
-      g_oco_sell_tk = ts;
+      if(want_sell && InpTwoLegs)
+        {
+         string err_r2 = "";
+         if(!B100DemoPlacePending(ORDER_TYPE_SELL_STOP, sell_px, sl_sell, run_tp_sell, lots,
+                                  g_oco_sid + ":R:S2", ts2, err_r2))
+            Print("B100 runner SELL leg failed ", err_r2, " — leg 1 continues alone");
+        }
+      g_oco_buy_tk   = tb;
+      g_oco_sell_tk  = ts;
+      g_oco_buy_tk2  = tb2;
+      g_oco_sell_tk2 = ts2;
+      g_runner_stage = 0;
       g_last_exec_bar = g_box.armed_bar;
      }
 
+   B100ShadowSetDecision(g_shadow,
+                         B100BrokerOrderIntentPermitted(g_mode) ? "TRADED" : "SKIP_MODE");
    B100FibClear();
    B100TelegramWatch();
-   Print("B100 OCO armed BOTH  first fill cancels the other  gate_log=", g_box.dir_gate,
+   Print("B100 OCO armed ", (want_buy && want_sell ? "BOTH" : (want_buy ? "BUY only" : "SELL only")),
+         "  first fill cancels the other  gate=", g_box.dir_gate,
          " BUY ", DoubleToString(buy_px, _Digits),
          "  SELL ", DoubleToString(sell_px, _Digits),
          "  lots=", DoubleToString(lots, 2),
@@ -1240,8 +1657,17 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
          return;
       if(HistoryDealGetString(deal, DEAL_SYMBOL) != _Symbol)
          return;
-      if((long)HistoryDealGetInteger(deal, DEAL_MAGIC) != B100_MAGIC)
+      const long deal_magic = (long)HistoryDealGetInteger(deal, DEAL_MAGIC);
+      if(deal_magic != B100_MAGIC)
+        {
+         // Manual trades (magic 0) were previously dropped here, so the
+         // operator's own discretion never became training data. Record them
+         // into the same shadow ledger, tagged MANUAL, alongside the
+         // counterfactual rows.
+         if(deal_magic == 0 && InpShadowLedger)
+            B100ManualDeal(deal);
          return;
+        }
       const long entry = HistoryDealGetInteger(deal, DEAL_ENTRY);
       const long dtype = HistoryDealGetInteger(deal, DEAL_TYPE);
       const double px  = HistoryDealGetDouble(deal, DEAL_PRICE);
@@ -1249,24 +1675,81 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
         {
          const int dir = (dtype == DEAL_TYPE_BUY) ? 1 : -1;
          string err = "";
-         if(dir > 0 && g_oco_sell_tk != 0)
+         // Both same-side legs sit at one price and fill on the same tick, so
+         // the first fill must retire BOTH opposite legs, not just one.
+         if(dir > 0)
            {
-            B100DemoCancelTicket(g_oco_sell_tk, err);
-            g_oco_sell_tk = 0;
+            if(g_oco_sell_tk != 0)
+              {
+               B100DemoCancelTicket(g_oco_sell_tk, err);
+               g_oco_sell_tk = 0;
+              }
+            if(g_oco_sell_tk2 != 0)
+              {
+               B100DemoCancelTicket(g_oco_sell_tk2, err);
+               g_oco_sell_tk2 = 0;
+              }
            }
-         else if(dir < 0 && g_oco_buy_tk != 0)
+         else
            {
-            B100DemoCancelTicket(g_oco_buy_tk, err);
-            g_oco_buy_tk = 0;
+            if(g_oco_buy_tk != 0)
+              {
+               B100DemoCancelTicket(g_oco_buy_tk, err);
+               g_oco_buy_tk = 0;
+              }
+            if(g_oco_buy_tk2 != 0)
+              {
+               B100DemoCancelTicket(g_oco_buy_tk2, err);
+               g_oco_buy_tk2 = 0;
+              }
            }
          g_oco_fill_dir = dir;
          g_oco_fill_px  = px;
+
+         // Gapped fills silently break the risk cap. The stop was anchored to the
+         // box, but a spike can fill us far past it — real fills on this account
+         // have gapped 60-123 points against a 5.00 spread. Left alone, the
+         // distance from actual entry to stop exceeds the distance the position
+         // was sized for, so the trade risks more than the configured fraction.
+         // Re-anchor the stop to the same distance from where we actually filled.
+         const double want_px = (dir > 0) ? g_oco_buy_px : g_oco_sell_px;
+         const double want_sl = (dir > 0) ? g_oco_sl_buy : g_oco_sl_sell;
+         const double want_tp = (dir > 0) ? g_oco_tp_buy : g_oco_tp_sell;
+         if(want_px > 0.0 && want_sl > 0.0)
+          {
+           const double gap     = (px - want_px) * dir;      // >0 = filled worse
+           const double sl_dist = MathAbs(want_px - want_sl);
+           if(gap > 0.0 && sl_dist > 0.0 && gap > 0.10 * sl_dist)
+            {
+             const double new_sl = px - dir * sl_dist;
+             const double new_tp = (want_tp > 0.0) ? px + dir * MathAbs(want_tp - want_px) : 0.0;
+             string merr = "";
+             if(B100ModifyPositionSl(trans.position, new_sl, new_tp, merr))
+                Print("B100 re-anchored stop after ", DoubleToString(gap, _Digits),
+                      " gap: SL ", DoubleToString(want_sl, _Digits), " -> ",
+                      DoubleToString(new_sl, _Digits), " (risk held at ",
+                      DoubleToString(sl_dist, _Digits), ")");
+             else
+                Print("B100 re-anchor FAILED ", merr, " — risk now ",
+                      DoubleToString(MathAbs(px - want_sl), _Digits),
+                      " vs intended ", DoubleToString(sl_dist, _Digits));
+             if(dir > 0)
+                g_oco_sl_buy = new_sl;
+             else
+                g_oco_sl_sell = new_sl;
+            }
+          }
          // ENTRY Telegram only from tick/close box fill — not from the deal callback.
         }
       else if(entry == DEAL_ENTRY_OUT)
         {
          const int dir = (dtype == DEAL_TYPE_SELL) ? 1 : -1;
          const long reason = HistoryDealGetInteger(deal, DEAL_REASON);
+         // Deals inherit their originating order/position's comment, the same
+         // ":R" marker B100ManageRunner already uses to find the runner
+         // position by POSITION_COMMENT — so this is the one place a closing
+         // deal can be told apart from leg 1's closing deal.
+         const bool is_runner = (StringFind(HistoryDealGetString(deal, DEAL_COMMENT), ":R") >= 0);
          string why = "CLOSE";
          if(reason == DEAL_REASON_SL)
             why = "CLOSE_SL";
@@ -1278,8 +1761,14 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
          B100TelegramClose(why, dir, g_oco_fill_px, px,
                            (dir > 0 ? g_oco_sl_buy : g_oco_sl_sell),
                            (dir > 0 ? g_oco_tp_buy : g_oco_tp_sell),
-                           pts);
-         B100OcoClearTickets();
+                           pts, is_runner);
+         // Leg 1 closing (TP1) does not end the trade while the runner is
+         // still open — clearing tickets here would spuriously reset
+         // g_runner_stage mid-flight (B100ManageRunner self-heals it next
+         // tick, but it's needless churn and was flatly wrong once real state
+         // depended on it). Only retire tracking once BOTH legs are closed.
+         if(B100CountMagicPositions() == 0)
+            B100OcoClearTickets();
         }
       return;
      }
@@ -1932,11 +2421,20 @@ void B100WatchGlyph(const string name, const datetime t, const double price,
 
 void B100PaintBox()
   {
-   static int last_hist = -1;
-   if(g_box.hist_n != last_hist)
+   // Trigger on n_boxes (uncapped, increments on every single arm), not
+   // hist_n. hist_n is the ring-buffer fill level in B100BoxPushHist — it
+   // counts up only until it reaches B100_BOX_HIST (24) and then stays pinned
+   // there forever, even though the ring keeps rotating and its *contents*
+   // keep changing underneath. Comparing against hist_n meant the on-chart
+   // history boxes silently froze the moment the 24th box ever formed: every
+   // box after that kept arming, alerting and trading correctly, but its
+   // rectangle was never painted, because this trigger had already gone
+   // permanently false.
+   static int last_n_boxes = -1;
+   if(g_box.n_boxes != last_n_boxes)
      {
       B100PaintHistBoxes();
-      last_hist = g_box.hist_n;
+      last_n_boxes = g_box.n_boxes;
      }
    if(InpStrategy != B100_STRAT_BOX_M30)
      {
@@ -2168,8 +2666,247 @@ void B100RescaleJournalMarks()
    ChartRedraw(0);
   }
 
+// Every gate that must agree before the button can arm anything. Returned as a
+// reason string so the chart can say exactly which one is blocking.
+bool B100LiveGatesOk(string &why)
+  {
+   if(!InpAllowLiveTrading)
+     {
+      why = "InpAllowLiveTrading is false";
+      return false;
+     }
+   if(!B100IsRealAccount())
+     {
+      why = "not a real account";
+      return false;
+     }
+   if(InpLiveAccountLogin == 0 || InpLiveAccountLogin != AccountInfoInteger(ACCOUNT_LOGIN))
+     {
+      why = "login " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + " not allowlisted";
+      return false;
+     }
+   if(g_mode.mode != B100_LIVE)
+     {
+      why = "mode is " + B100ModeName(g_mode.mode);
+      return false;
+     }
+   if(g_mode.health != B100_HEALTHY)
+     {
+      why = "health fault: " + g_mode.block_reason;
+      return false;
+     }
+   why = "";
+   return true;
+  }
+
+void B100LiveButtonCreate(void)
+  {
+   if(!InpShowLiveButton)
+      return;
+   if(ObjectFind(0, BTN_LIVE) < 0)
+      ObjectCreate(0, BTN_LIVE, OBJ_BUTTON, 0, 0, 0);
+   ObjectSetInteger(0, BTN_LIVE, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, BTN_LIVE, OBJPROP_XDISTANCE, 12);
+   ObjectSetInteger(0, BTN_LIVE, OBJPROP_YDISTANCE, 44);   // placeholder; B100LiveButtonPaint() repositions using g_dash_bottom_y below
+   ObjectSetInteger(0, BTN_LIVE, OBJPROP_XSIZE, 168);
+   ObjectSetInteger(0, BTN_LIVE, OBJPROP_YSIZE, 26);
+   ObjectSetInteger(0, BTN_LIVE, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, BTN_LIVE, OBJPROP_SELECTABLE, false);
+   ObjectSetString(0, BTN_LIVE, OBJPROP_FONT, "Segoe UI Semibold");
+
+   if(ObjectFind(0, BTN_ENTER) < 0)
+      ObjectCreate(0, BTN_ENTER, OBJ_BUTTON, 0, 0, 0);
+   ObjectSetInteger(0, BTN_ENTER, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+   ObjectSetInteger(0, BTN_ENTER, OBJPROP_XDISTANCE, 12);
+   ObjectSetInteger(0, BTN_ENTER, OBJPROP_YDISTANCE, 76);   // placeholder; B100EnterButtonPaint() repositions using g_dash_bottom_y below
+   ObjectSetInteger(0, BTN_ENTER, OBJPROP_XSIZE, 168);
+   ObjectSetInteger(0, BTN_ENTER, OBJPROP_YSIZE, 26);
+   ObjectSetInteger(0, BTN_ENTER, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, BTN_ENTER, OBJPROP_SELECTABLE, false);
+   ObjectSetString(0, BTN_ENTER, OBJPROP_FONT, "Segoe UI Semibold");
+
+   B100LiveButtonPaint();
+   B100EnterButtonPaint();
+  }
+
+// One-shot ground truth for the Experts tab, not a guess. Logs whether
+// BTN_LIVE/BTN_ENTER actually exist and exactly where/what color/what text
+// they carry (InpShowLiveButton=false would explain "buttons never appear" on
+// its own — this makes that visible instead of assumed), plus every chart
+// object whose name contains "Label", since MT5's own naming convention for a
+// repeated default-named insert is "Label", "Label 1", "Label 2", ... which an
+// exact match on "Label" alone would miss.
+void B100LogObjectDiagnostics(void)
+  {
+   Print("B100 DIAG  InpShowLiveButton=", InpShowLiveButton,
+         "  g_dash_bottom_y=", g_dash_bottom_y);
+   string names[2] = {BTN_LIVE, BTN_ENTER};
+   for(int i = 0; i < 2; i++)
+     {
+      const string nm = names[i];
+      if(ObjectFind(0, nm) < 0)
+        {
+         Print("B100 DIAG  '", nm, "'  NOT FOUND");
+         continue;
+        }
+      Print("B100 DIAG  '", nm, "'  corner=", ObjectGetInteger(0, nm, OBJPROP_CORNER),
+            "  x=", ObjectGetInteger(0, nm, OBJPROP_XDISTANCE),
+            "  y=", ObjectGetInteger(0, nm, OBJPROP_YDISTANCE),
+            "  xsize=", ObjectGetInteger(0, nm, OBJPROP_XSIZE),
+            "  ysize=", ObjectGetInteger(0, nm, OBJPROP_YSIZE),
+            "  bg=", ColorToString((color)ObjectGetInteger(0, nm, OBJPROP_BGCOLOR)),
+            "  fg=", ColorToString((color)ObjectGetInteger(0, nm, OBJPROP_COLOR)),
+            "  text='", ObjectGetString(0, nm, OBJPROP_TEXT), "'",
+            "  timeframes=", ObjectGetInteger(0, nm, OBJPROP_TIMEFRAMES));
+     }
+
+   const int total = ObjectsTotal(0, -1, -1);
+   int label_hits = 0;
+   for(int i = 0; i < total; i++)
+     {
+      const string nm = ObjectName(0, i, -1, -1);
+      if(StringFind(nm, "Label") < 0)
+         continue;
+      label_hits++;
+      Print("B100 DIAG  Label-object '", nm, "'  type=",
+            EnumToString((ENUM_OBJECT)ObjectGetInteger(0, nm, OBJPROP_TYPE)),
+            "  corner=", ObjectGetInteger(0, nm, OBJPROP_CORNER),
+            "  x=", ObjectGetInteger(0, nm, OBJPROP_XDISTANCE),
+            "  y=", ObjectGetInteger(0, nm, OBJPROP_YDISTANCE),
+            "  text='", ObjectGetString(0, nm, OBJPROP_TEXT), "'");
+     }
+   Print("B100 DIAG  total chart objects=", total, "  matching 'Label'=", label_hits);
+  }
+
+// Manual one-click entry. Deliberately reports WHY it is unavailable rather than
+// sitting inert: an armed box that cannot be traded is the interesting case.
+void B100EnterButtonPaint(void)
+  {
+   if(!InpShowLiveButton || ObjectFind(0, BTN_ENTER) < 0)
+      return;
+   // Stacks directly under BTN_LIVE, which itself now floats below the
+   // dashboard, so the two buttons and the dashboard can never overlap.
+   ObjectSetInteger(0, BTN_ENTER, OBJPROP_YDISTANCE, g_dash_bottom_y + 26 + 6);
+   const bool have_box = (g_box.ready && g_box.state == B100_BOX_ARMED);
+   const bool can_send = B100BrokerOrderIntentPermitted(g_mode);
+   string text;
+   color bg, fg;
+   if(!have_box)
+     {
+      text = "no box armed";
+      bg   = C'40,42,50'; fg = C'150,152,160';
+     }
+   else if(!can_send)
+     {
+      text = "ENTER (needs DEMO/LIVE)";
+      bg   = C'40,42,50'; fg = C'150,152,160';
+     }
+   else if(g_oco_armed)
+     {
+      text = "orders already placed";
+      bg   = C'44,58,76'; fg = C'160,180,200';
+     }
+   else
+     {
+      text = "▸ ENTER THIS BOX";
+      bg   = C'46,110,86'; fg = clrWhite;
+     }
+   ObjectSetString(0, BTN_ENTER, OBJPROP_TEXT, text);
+   ObjectSetInteger(0, BTN_ENTER, OBJPROP_BGCOLOR, bg);
+   ObjectSetInteger(0, BTN_ENTER, OBJPROP_COLOR, fg);
+   ObjectSetInteger(0, BTN_ENTER, OBJPROP_STATE, false);
+   ObjectSetString(0, BTN_ENTER, OBJPROP_TOOLTIP,
+                   "Place this box's four legs now, bypassing the size filter. "
+                   "All broker and risk checks still apply.");
+  }
+
+void B100LiveButtonPaint(void)
+  {
+   if(!InpShowLiveButton || ObjectFind(0, BTN_LIVE) < 0)
+      return;
+   // Anchor below the dashboard's actual bottom edge, not a fixed Y — a fixed
+   // Y is what let the dashboard grow tall enough to paint over this button.
+   ObjectSetInteger(0, BTN_LIVE, OBJPROP_YDISTANCE, g_dash_bottom_y);
+   string why = "";
+   const bool gates = B100LiveGatesOk(why);
+   string text;
+   color bg, fg;
+   if(!gates)
+     {
+      text = "LIVE LOCKED";
+      bg   = C'40,42,50';
+      fg   = C'150,152,160';
+     }
+   else if(g_mode.live_armed)
+     {
+      text = "● LIVE ARMED — REAL MONEY";
+      bg   = C'190,40,40';
+      fg   = clrWhite;
+     }
+   else
+     {
+      text = "LIVE OFF — click to arm";
+      bg   = C'52,90,72';
+      fg   = C'220,235,225';
+     }
+   ObjectSetString(0, BTN_LIVE, OBJPROP_TEXT, text);
+   ObjectSetInteger(0, BTN_LIVE, OBJPROP_BGCOLOR, bg);
+   ObjectSetInteger(0, BTN_LIVE, OBJPROP_COLOR, fg);
+   ObjectSetInteger(0, BTN_LIVE, OBJPROP_STATE, false);
+   ObjectSetString(0, BTN_LIVE, OBJPROP_TOOLTIP,
+                   gates ? "Toggles real-money order placement for this chart"
+                         : "Blocked: " + why);
+  }
+
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
   {
+   if(id == CHARTEVENT_OBJECT_CLICK && sparam == BTN_LIVE)
+     {
+      string why = "";
+      if(!B100LiveGatesOk(why))
+        {
+         Print("B100 LIVE arm refused — ", why);
+         g_mode.live_armed = false;
+        }
+      else
+        {
+         g_mode.live_armed = !g_mode.live_armed;
+         Print("B100 LIVE ", (g_mode.live_armed ? "ARMED — real orders enabled" : "disarmed"),
+               "  account=", AccountInfoInteger(ACCOUNT_LOGIN), "  symbol=", _Symbol);
+         if(g_mode.live_armed)
+            B100Tg("LIVE ARMED on " + _Symbol + " account " +
+                   IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
+         else
+            B100CancelBoxOco("live disarmed");
+        }
+      B100LiveButtonPaint();
+      ChartRedraw();
+      return;
+     }
+   if(id == CHARTEVENT_OBJECT_CLICK && sparam == BTN_ENTER)
+     {
+      const double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      const double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      if(!g_box.ready || g_box.state != B100_BOX_ARMED)
+         Print("B100 manual entry — no box armed");
+      else if(!B100BrokerOrderIntentPermitted(g_mode))
+         Print("B100 manual entry refused — mode=", B100ModeName(g_mode.mode),
+               " (needs DEMO, or LIVE armed on the allowlisted real account)");
+      else
+        {
+         // Operator intent overrides the statistical size filter, but never the
+         // broker or risk gates — those still run inside B100ArmBoxOco.
+         Print("B100 manual entry requested — bypassing the size filter only");
+         g_manual_entry_override = true;
+         B100ArmBoxOco(bid, ask);
+         g_manual_entry_override = false;
+         if(g_oco_armed)
+            B100ShadowSetDecision(g_shadow, "MANUAL_BUTTON");
+        }
+      B100EnterButtonPaint();
+      ChartRedraw();
+      return;
+     }
    if(id == CHARTEVENT_CHART_CHANGE)
       B100RescaleJournalMarks();
    if(id == CHARTEVENT_OBJECT_CREATE || id == CHARTEVENT_OBJECT_CHANGE ||
@@ -2382,22 +3119,6 @@ void B100HarvestHumanBoxes()
    B100PaintHud();
   }
 
-int B100TextPx(const string font, const int fs_pt, const string text, int &out_w)
-  {
-   out_w = 0;
-   if(text == "")
-      return 0;
-   uint w = 0, h = 0;
-   TextSetFont(font, fs_pt * 10);
-   if(TextGetSize(text, w, h) && h > 0)
-     {
-      out_w = (int)w;
-      return (int)h;
-     }
-   out_w = (int)StringLen(text) * MathMax(6, fs_pt);
-   return (fs_pt >= 14) ? 32 : 18;
-  }
-
 void B100HudLabel(const string name, const int x, const int y, const int fs,
                   const string font, const color clr, const string text)
   {
@@ -2415,22 +3136,31 @@ void B100HudLabel(const string name, const int x, const int y, const int fs,
    ObjectSetString(0, name, OBJPROP_TEXT, text);
   }
 
+// The on-chart dashboard. Grew from a bare SIGNAL+SL/TP1 line into a mirror of
+// the Telegram WATCH alert (mode, auto-trade state, both rails, box-vs-floor,
+// the learned policy's n and measured R) so the chart never needs Telegram open
+// to show what will, or would, get traded. Height varies with content, so it
+// reports its own bottom edge in g_dash_bottom_y for the buttons to anchor to.
+// Fixed pixel strides, deliberately NOT measured via B100TextPx()/TextGetSize().
+// TextGetSize() returns device-pixel dimensions, and on a scaled-DPI monitor
+// that can come back far larger than expected — one such reading turned a
+// dashboard that should span ~180px into one spanning 400+px, which in turn
+// pushed g_dash_bottom_y (and the LIVE/ENTER buttons anchored to it) off the
+// visible chart entirely. Fixed strides make the layout immune to that: it
+// looks identical on every monitor because it never asks the renderer how
+// big anything came out.
+#define B100_ROW_BIG 22   // the headline signal row (16pt)
+#define B100_ROW_SM  15   // every 9pt detail row
+
 void B100PaintHud()
   {
    const int x = 14;
    const int y = 16;
    const int pad = 8;
    const int x_text = x + 16;
+   const int box_w = 250;   // fixed; fits the longest line ("BUY  99999.99  SL 99999.99  r$999.99")
    const string font = "Georgia";
    const bool armed = (InpStrategy == B100_STRAT_BOX_M30 && g_box.ready && g_box.state == B100_BOX_ARMED);
-   string sub = "";
-   if(g_levels.valid)
-      sub = "SL " + DoubleToString(g_levels.sl, _Digits) + "   TP1 " + DoubleToString(g_levels.tp1, _Digits);
-   else if(armed)
-      sub = "BUY " + DoubleToString(g_box.buy_stop, _Digits) + "  SELL " + DoubleToString(g_box.sell_stop, _Digits);
-   const bool has_sub = (sub != "");
-   const bool has_hum = (g_human_n > 0);
-   const string hum = has_hum ? ("HUMAN " + IntegerToString(g_human_n) + " saved") : "";
 
    color clr = C'168,164,154';
    if(g_signal == "BUY") clr = CLR_BUY;
@@ -2440,36 +3170,118 @@ void B100PaintHud()
    else if(g_signal == "STAND_DOWN") clr = CLR_SELL;
 
    int cy = y + pad;
-   int max_w = 120;
-   int tw = 0;
-   int th = B100TextPx(font, 16, g_signal, tw);
-   if(tw > max_w) max_w = tw;
    B100HudLabel(LBL_SIG, x_text, cy, 16, font, clr, g_signal);
-   cy += MathMax(th, 32) + pad;
+   cy += B100_ROW_BIG + 4;
 
-   if(has_sub)
+   // Mode / auto-trade — the number that answers "will this actually fire".
+   const bool can_send = B100BrokerOrderIntentPermitted(g_mode);
+   const string mode_line = "mode " + B100ModeName(g_mode.mode) + "   auto " + (can_send ? "ON" : "OFF");
+   const color mode_clr = can_send ? C'110,180,130' : C'150,152,160';
+   B100HudLabel(LBL_MODE, x_text, cy, 9, font, mode_clr, mode_line);
+   cy += B100_ROW_SM + 2;
+
+   // Both rails, same numbers as the Telegram WATCH alert.
+   const double lots_per_leg = MathMax(InpLotsPerLeg, SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN));
+   string buy1 = "", buy2 = "", sell1 = "", sell2 = "";
+   if(g_oco_buy_px > 0.0)
      {
-      th = B100TextPx(font, 9, sub, tw);
-      if(tw > max_w) max_w = tw;
+      buy1 = "BUY  " + B100Px(g_oco_buy_px) + "  SL " + B100Px(g_oco_sl_buy) +
+             "  r$" + DoubleToString(B100MoneyRisk(MathAbs(g_oco_buy_px - g_oco_sl_buy), lots_per_leg), 2);
+      buy2 = "     TP1 " + B100Px(g_oco_tp_buy) +
+             ((g_oco_tp3_buy > 0.0 && g_oco_tp3_buy != g_oco_tp_buy) ? "  TP3 " + B100Px(g_oco_tp3_buy) : "");
+     }
+   if(g_oco_sell_px > 0.0)
+     {
+      sell1 = "SELL " + B100Px(g_oco_sell_px) + "  SL " + B100Px(g_oco_sl_sell) +
+              "  r$" + DoubleToString(B100MoneyRisk(MathAbs(g_oco_sell_px - g_oco_sl_sell), lots_per_leg), 2);
+      sell2 = "     TP1 " + B100Px(g_oco_tp_sell) +
+              ((g_oco_tp3_sell > 0.0 && g_oco_tp3_sell != g_oco_tp_sell) ? "  TP3 " + B100Px(g_oco_tp3_sell) : "");
+     }
+   // Fallback for a filled/manual position where the OCO globals are cleared,
+   // or a box that has armed but not yet reached level computation.
+   string sub = "";
+   if(buy1 == "" && sell1 == "")
+     {
+      if(g_levels.valid)
+         sub = "SL " + B100Px(g_levels.sl) + "   TP1 " + B100Px(g_levels.tp1);
+      else if(armed)
+         sub = "BUY " + B100Px(g_box.buy_stop) + "  SELL " + B100Px(g_box.sell_stop);
+     }
+
+   if(buy1 != "")
+     {
+      B100HudLabel(LBL_BUY1, x_text, cy, 9, font, CLR_BUY, buy1);
+      cy += B100_ROW_SM;
+      B100HudLabel(LBL_BUY2, x_text, cy, 9, font, C'140,136,128', buy2);
+      cy += B100_ROW_SM + 2;
+     }
+   else
+     {
+      B100HudLabel(LBL_BUY1, x_text, cy, 9, font, C'140,136,128', "");
+      B100HudLabel(LBL_BUY2, x_text, cy, 9, font, C'140,136,128', "");
+     }
+   if(sell1 != "")
+     {
+      B100HudLabel(LBL_SELL1, x_text, cy, 9, font, CLR_SELL, sell1);
+      cy += B100_ROW_SM;
+      B100HudLabel(LBL_SELL2, x_text, cy, 9, font, C'140,136,128', sell2);
+      cy += B100_ROW_SM + 2;
+     }
+   else
+     {
+      B100HudLabel(LBL_SELL1, x_text, cy, 9, font, C'140,136,128', "");
+      B100HudLabel(LBL_SELL2, x_text, cy, 9, font, C'140,136,128', "");
+     }
+   if(sub != "")
+     {
       B100HudLabel(LBL_LV, x_text, cy, 9, font, C'140,136,128', sub);
-      cy += MathMax(th, 18) + 6;
+      cy += B100_ROW_SM + 3;
      }
    else
       B100HudLabel(LBL_LV, x_text, cy, 9, font, C'140,136,128', "");
 
+   // Box height vs the execution size floor — same test B100ArmBoxOco runs.
+   string boxinfo = "";
+   color boxinfo_clr = C'140,136,128';
+   if(g_box.height > 0.0)
+     {
+      const double spread_now = MathMax(SymbolInfoDouble(_Symbol, SYMBOL_ASK) -
+                                        SymbolInfoDouble(_Symbol, SYMBOL_BID), _Point);
+      const double h_spreads = (spread_now > 0.0) ? g_box.height / spread_now : 0.0;
+      boxinfo = "box " + DoubleToString(g_box.height, _Digits) + " = " +
+                DoubleToString(h_spreads, 1) + "x spread";
+      if(InpMinBoxSpreads > 0.0)
+        {
+         const bool over_floor = (h_spreads >= InpMinBoxSpreads);
+         boxinfo += over_floor ? "  OK" : "  LOW";
+         boxinfo_clr = over_floor ? C'110,180,130' : C'196,164,92';
+        }
+     }
+   if(boxinfo != "")
+     {
+      B100HudLabel(LBL_BOXINFO, x_text, cy, 9, font, boxinfo_clr, boxinfo);
+      cy += B100_ROW_SM + 2;
+     }
+   else
+      B100HudLabel(LBL_BOXINFO, x_text, cy, 9, font, C'140,136,128', "");
+
+   // The learned policy. Sample size travels with the estimate on purpose — a
+   // probability from 14 closed trades and one from 400 must not read the same.
+   const string modelline = "model n=" + IntegerToString(g_policy.n) + " (" + g_policy.source + ")" +
+                            (g_policy.mean_r != 0.0 ? "  R=" + DoubleToString(g_policy.mean_r, 3) : "");
+   B100HudLabel(LBL_MODEL, x_text, cy, 9, font, C'140,136,128', modelline);
+   cy += B100_ROW_SM + 2;
+
+   const bool has_hum = (g_human_n > 0);
+   const string hum = has_hum ? ("HUMAN " + IntegerToString(g_human_n) + " saved") : "";
    if(has_hum)
      {
-      th = B100TextPx(font, 9, hum, tw);
-      if(tw > max_w) max_w = tw;
       B100HudLabel(LBL_HUM, x_text, cy, 9, font, CLR_ARR_BUY, hum);
-      cy += MathMax(th, 18) + 6;
+      cy += B100_ROW_SM + 3;
      }
    else
       B100HudLabel(LBL_HUM, x_text, cy, 9, font, CLR_ARR_BUY, "");
 
-   int box_w = max_w + 36;
-   if(box_w < 168)
-      box_w = 168;
    const int h = cy - y + pad;
    if(ObjectFind(0, HUD_BG) < 0)
       ObjectCreate(0, HUD_BG, OBJ_RECTANGLE_LABEL, 0, 0, 0);
@@ -2485,6 +3297,11 @@ void B100PaintHud()
    ObjectSetInteger(0, HUD_BG, OBJPROP_BACK, false);
    ObjectSetInteger(0, HUD_BG, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, HUD_BG, OBJPROP_HIDDEN, true);
+
+   // Defensive clamp: even if some future line is added and this is forgotten
+   // about, the buttons can never be pushed further than this off the top of
+   // a normal-sized chart window.
+   g_dash_bottom_y = MathMin(y + h + 10, 260);
   }
 
 void B100PaintPanel()
