@@ -2,9 +2,9 @@
 
 M30 box-breakout expert for **BREAK100** (Boom-class synthetic) on MetaTrader 5.
 
-**EA v2.23** · chart **M30 only** · live orders **locked** · **not a profit claim**
+**EA v2.31** · chart **M30 only** · live orders **gated, off by default** · **not a profit claim**
 
-`OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (disabled in source)`
+`OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (input + real account + login allowlist + armed chart button, never persisted)`
 
 ---
 
@@ -119,7 +119,7 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/Break100 Box Trading.mq5` | Chart EA (v2.23) |
+| `mql5/Experts/Break100 Box Trading.mq5` | Chart EA (v2.31) |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
@@ -138,6 +138,7 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **2.24–2.31** | Two-leg OCO (runner to TP3); manual trades and one-click entry logged to the shadow ledger; LIVE-init bug fixed (real-account check was silently forcing OBSERVE after the gate already passed); Telegram audit (duplicate alerts, runner-blind cancels, orphaned-pending fix, stale self-test version); history-box repaint fixed; on-chart dashboard mirrors the Telegram alert. |
 | **2.23** | Shadow ledger runs in every mode for every box, filtered or not, tagged with the execution decision; capture CSVs versioned to v2 with a header matching the rows. |
 | **2.22** | Box-size trade filter (`InpMinBoxSpreads`); stop re-anchored to the actual fill after a gapped entry; broker `trade_stops_level` honoured. |
 | **2.21** | Gated LIVE toggle: input + real account + login allowlist + chart button, disarmed on every restart. |

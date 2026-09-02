@@ -37,7 +37,7 @@ Copy files
 Compile
   F4 MetaEditor → open Break100 Box Trading.mq5 → F7.
   Log must say: 0 errors.
-  Version in the Navigator / Experts tab: 2.23
+  Version in the Navigator / Experts tab: 2.31
   Close MetaEditor. In MT5 Navigator: right-click Experts → Refresh.
 
 Attach

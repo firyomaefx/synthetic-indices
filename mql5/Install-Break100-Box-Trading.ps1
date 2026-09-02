@@ -61,7 +61,7 @@ function Compile-One([string]$editor, [string]$file, [string]$include) {
     "/compile:`"$file`"", "/inc:`"$include`"", "/log:`"$log`""
   ) | Out-Null
   if (-not (Test-Path $log)) {
-    Write-Warning "No log for $file — MetaEditor may have failed to start."
+    Write-Warning "No log for $file - MetaEditor may have failed to start."
     return $false
   }
   $text = Get-Content $log -Raw -ErrorAction SilentlyContinue
