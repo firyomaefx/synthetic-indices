@@ -183,6 +183,11 @@ void B100CapWriteClosedBar(B100Capture &c, const int i)
       return;
    MqlRates r[];
    // Catch up missed closed bars (oldest first). Shift 1 = last closed. Never bar 0.
+   // Be explicit about direction: with a non-series array CopyRates fills index 0
+   // with the OLDEST bar. B100CapWriteOneBar advances last_bar_time and rejects
+   // anything at or before it, so walking newest-first writes one bar and then
+   // discards every older bar in the gap as stale.
+   ArraySetAsSeries(r, false);
    const int got = CopyRates(_Symbol, tf, 1, 500, r);
    if(got < 1)
      {
@@ -198,7 +203,7 @@ void B100CapWriteClosedBar(B100Capture &c, const int i)
       B100CapWriteOneBar(c, i, one);
       return;
      }
-   for(int k = got - 1; k >= 0; k--)
+   for(int k = 0; k < got; k++)
      {
       if(r[k].time <= c.last_bar_time[i])
          continue;
