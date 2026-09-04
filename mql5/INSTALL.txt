@@ -36,9 +36,23 @@ Copy files
 
     .\Install-Break100-Box-Trading.ps1 -Pull -SyncHF
 
-  (-Pull runs 'git pull' first; -SyncHF runs the HF sync after a clean
-  compile, if BREAK100_hf.txt is already set up. Both are optional; the bare
-  script with no switches just copies + compiles what's already checked out.)
+  (-Pull runs 'git pull' first and prints the branch + commit it landed on;
+  -SyncHF runs the HF sync after a clean compile, if BREAK100_hf.txt is already
+  set up. Both optional; the bare script just copies + compiles what is already
+  checked out.)
+
+  Everything ships on master. If your checkout has drifted onto another branch,
+  the installer will refuse rather than quietly deploy an old build -- add
+  -Branch to move it:
+
+    .\Install-Break100-Box-Trading.ps1 -Pull -Branch master
+
+  The installer prints the versions it actually read off disk, e.g.
+    Deployed: EA 2.33  Script 1.01  ->  ...\MQL5
+  If those are not the versions you expect, you are on the wrong branch. It no
+  longer takes a version on trust -- an earlier build printed a hardcoded
+  "v2.33" while deploying v2.31, which is exactly how a stale install went
+  unnoticed.
 
 Compile
   If you used the .ps1 above, this is already done -- check its output for

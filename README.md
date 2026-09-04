@@ -54,7 +54,7 @@ Desktop MT5 only. Not the iPhone app.
    ```powershell
    .\Install-Break100-Box-Trading.ps1 -Pull -SyncHF
    ```
-   (`-Pull` and `-SyncHF` are both optional — see the script's own header comment. Its compile step uses the MetaEditor CLI, so **F7 is not required by hand** unless you'd rather do it manually.)
+   (`-Pull` and `-SyncHF` are both optional — see the script's own header comment. Its compile step uses the MetaEditor CLI, so **F7 is not required by hand** unless you'd rather do it manually. Everything ships on `master`; add `-Branch master` if your checkout has drifted. The installer prints the versions it read off disk — expect **EA 2.33, Script 1.01** — and refuses to run if the OCO script is missing, rather than silently deploying an older build.)
 2. Open **BREAK100, M30**. Attach **Break100 Box Trading** (Experts) — detection, HUD, Telegram, Shadow ledger. Inputs: strategy **BOX_M30**, mode **OBSERVE** (or SHADOW).
 3. Experts log should show `B100 Telegram ON  chart=M30`. Other timeframes log `Telegram OFF`.
 
