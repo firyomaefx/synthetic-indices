@@ -1,19 +1,19 @@
 #property copyright "Break100 Box Trading"
-#property version   "2.31"
+#property version   "2.33"
 #property description "Break100 Box Trading — M30 box breakout with OCO rails."
+#property description "2.33  OCO placement moved to RES-SUP OCO.mq5 script; EA now detects/logs only"
+#property description "2.32  fixed unreachable OCO placement; empty HUD rows no longer paint \"Label\""
 #property description "2.31  fixed orphaned BUY runner pending when SELL leg1 placement fails"
 #property description "2.30  Telegram audit: fixed dup TP/close alerts, runner-blind cancels, stale self-test ver"
 #property description "2.29  fixed history-box repaint (n_boxes not hist_n); button/Label diagnostics"
-#property description "2.28  fixed dashboard spacing bug that pushed LIVE/ENTER off-screen"
-#property description "2.27  chart dashboard mirrors the Telegram alert"
-// Older history (2.26 and earlier) dropped from here: MetaEditor caps the
+// Older history (2.28 and earlier) dropped from here: MetaEditor caps the
 // combined length of all #property description lines around 500 chars and
 // silently truncates or warns past it. Full history stays in CHANGE_LOG.md.
 
 // Keep in step with #property version above. MQL5 exposes no macro for the
 // property, so this duplicate is the only way to report the build at runtime —
 // and the two drift apart the moment someone edits one and not the other.
-#define B100_VERSION "2.31"
+#define B100_VERSION "2.33"
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -394,13 +394,13 @@ int OnInit()
    // this chart). Narrow exact-name match only; touches nothing else.
    if(ObjectFind(0, "Label") >= 0)
       ObjectDelete(0, "Label");
-   // Two rounds of guessing (z-order in v2.27, DPI-dependent spacing in v2.28)
-   // each fixed a real bug but the LIVE/ENTER buttons still weren't visible in
-   // the follow-up screenshot, and "Label" survived the exact-match delete
-   // above. Rather than guess a third time, log ground truth to the Experts
-   // tab: exactly where the buttons think they are and what every "Label"-
-   // named object on the chart actually is, called right after this delete so
-   // it shows what's left once that pass has already run.
+   // RESOLVED in v2.32. "Label" survived the delete above because it was never
+   // an object *named* "Label": it was this EA's own HUD rows. B100HudLabel()
+   // wrote OBJPROP_TEXT = "" for every empty row, and a label with empty text
+   // renders the terminal's default caption rather than nothing. B100HudLabel()
+   // now hides empty rows outright, so the delete above only ever has to deal
+   // with a genuine stray manual insert. The diagnostics stay because they are
+   // cheap and they are what finally showed the object list as it really was.
    B100LogObjectDiagnostics();
    ChartSetInteger(0, CHART_EVENT_OBJECT_CREATE, true);
    ChartSetInteger(0, CHART_EVENT_OBJECT_DELETE, true);
@@ -1439,11 +1439,13 @@ void B100ArmBoxOco(const double bid, const double ask)
      {
       if(g_risk_code != "MAX_POSITION_REACHED")
          B100ShadowSetDecision(g_shadow, "SKIP_RISK");
-         return;
+      return;
      }
    if(B100CountMagicPositions() > 0)
+     {
       B100ShadowSetDecision(g_shadow, "SKIP_OPEN");
       return;
+     }
 
    // Box-size gate. Gap overshoot measured in R scales inversely with box size:
    // a 100-point gap is 2.2R against a 46-point stop but 0.87R against a 115-point
@@ -1488,14 +1490,20 @@ void B100ArmBoxOco(const double bid, const double ask)
    g_levels.valid = false;
 
    if(want_buy && sl_buy <= 0.0)
+     {
       B100ShadowSetDecision(g_shadow, "SKIP_SL_INVALID");
       return;
+     }
    if(want_sell && sl_sell <= 0.0)
+     {
       B100ShadowSetDecision(g_shadow, "SKIP_SL_INVALID");
       return;
+     }
    if(want_buy && want_sell && buy_px <= sell_px)
+     {
       B100ShadowSetDecision(g_shadow, "SKIP_RAILS_CROSSED");
       return;
+     }
    if(want_buy && !(ask < buy_px))
      {
       Print("B100 skip — ask already through BUY STOP");
@@ -1561,84 +1569,30 @@ void B100ArmBoxOco(const double bid, const double ask)
    // Shadow is armed in OnTick for every box, filtered or not. Arming it here
    // as well would only ever record boxes that survived all eight gates above.
 
-   if(B100BrokerOrderIntentPermitted(g_mode))
-     {
-      B100DemoCancelAllPendings();
-      string err = "";
-      ulong tb = 0, ts = 0, tb2 = 0, ts2 = 0;
-      // Runner target: TP3 when we have levels, else fall back to the leg-1 TP
-      // so a runner is never sent without a target.
-      const double run_tp_buy  = (g_levels.valid && g_levels.tp3 > 0.0) ? g_levels.tp3 : tp_buy;
-      const double run_tp_sell = (g_levels.valid && g_levels.tp3 > 0.0) ? g_levels.tp3 : tp_sell;
-      // Only advertise a runner target when a runner leg will actually be
-      // placed below. Setting these unconditionally meant the WATCH alert and
-      // the dashboard both claimed a "TP3 (runner)" leg with InpTwoLegs=false,
-      // describing an order that was never sent.
-      g_oco_tp3_buy  = InpTwoLegs ? run_tp_buy : 0.0;
-      g_oco_tp3_sell = InpTwoLegs ? run_tp_sell : 0.0;
-      if(want_buy)
-        {
-         if(!B100DemoPlacePending(ORDER_TYPE_BUY_STOP, buy_px, sl_buy, tp_buy, lots, g_oco_sid + ":B1", tb, err))
-           {
-            Print("B100 OCO BUY_STOP failed ", err);
-            B100OcoClearTickets();
-            B100TelegramWatch();
-            return;
-           }
-         if(InpTwoLegs)
-           {
-            string err_r = "";
-            if(!B100DemoPlacePending(ORDER_TYPE_BUY_STOP, buy_px, sl_buy, run_tp_buy, lots,
-                                     g_oco_sid + ":R:B2", tb2, err_r))
-               Print("B100 runner BUY leg failed ", err_r, " — leg 1 continues alone");
-           }
-        }
-      if(want_sell)
-        {
-         string err_s = "";
-         if(!B100DemoPlacePending(ORDER_TYPE_SELL_STOP, sell_px, sl_sell, tp_sell, lots, g_oco_sid + ":S1", ts, err_s))
-           {
-            Print("B100 OCO SELL_STOP failed ", err_s);
-            string cerr = "";
-            if(tb != 0)
-               B100DemoCancelTicket(tb, cerr);
-            // tb2 (the BUY runner) can already be live at this point — it is
-            // placed right after BUY leg 1, before SELL is ever attempted. This
-            // was previously left uncancelled: an orphaned, untracked pending
-            // that no EA state pointed to, resting on the broker until the next
-            // box's B100DemoCancelAllPendings happened to sweep it up.
-            if(tb2 != 0)
-               B100DemoCancelTicket(tb2, cerr);
-            B100OcoClearTickets();
-            B100TelegramWatch();
-            return;
-           }
-        }
-      if(want_sell && InpTwoLegs)
-        {
-         string err_r2 = "";
-         if(!B100DemoPlacePending(ORDER_TYPE_SELL_STOP, sell_px, sl_sell, run_tp_sell, lots,
-                                  g_oco_sid + ":R:S2", ts2, err_r2))
-            Print("B100 runner SELL leg failed ", err_r2, " — leg 1 continues alone");
-        }
-      g_oco_buy_tk   = tb;
-      g_oco_sell_tk  = ts;
-      g_oco_buy_tk2  = tb2;
-      g_oco_sell_tk2 = ts2;
-      g_runner_stage = 0;
-      g_last_exec_bar = g_box.armed_bar;
-     }
+   // v2.33: this EA no longer places the OCO pendings itself. Execution moved
+   // to the standalone "RES-SUP OCO.mq5" script (mql5/Scripts/) so the EA and
+   // the script can never both try to place orders for the same box. This
+   // function still runs every gate above (box-size floor, direction gate,
+   // rails-crossed, broker stops-level) purely to keep computing g_levels for
+   // the HUD, the Shadow-ledger counterfactual, and the Telegram WATCH alert —
+   // it just never reaches OrderSend. g_oco_buy_tk/_sell_tk/_tk2/_tk2 are left
+   // permanently 0, which makes OnTradeTransaction's and B100TelegramFill's
+   // sibling-cancel branches (both guarded on ticket != 0) inert no-ops rather
+   // than dead code to strip — nothing else in this EA places a ticket into
+   // them any more.
+   g_oco_tp3_buy  = 0.0;
+   g_oco_tp3_sell = 0.0;
 
-   B100ShadowSetDecision(g_shadow,
-                         B100BrokerOrderIntentPermitted(g_mode) ? "TRADED" : "SKIP_MODE");
+   B100ShadowSetDecision(g_shadow, "SKIP_EXTERNAL_EXEC");
    B100FibClear();
    B100TelegramWatch();
-   Print("B100 OCO armed ", (want_buy && want_sell ? "BOTH" : (want_buy ? "BUY only" : "SELL only")),
-         "  first fill cancels the other  gate=", g_box.dir_gate,
+   Print("B100 box would trade ", (want_buy && want_sell ? "BOTH" : (want_buy ? "BUY only" : "SELL only")),
+         "  gate=", g_box.dir_gate,
          " BUY ", DoubleToString(buy_px, _Digits),
          "  SELL ", DoubleToString(sell_px, _Digits),
          "  lots=", DoubleToString(lots, 2),
-         "  mode=", B100ModeName(g_mode.mode));
+         "  mode=", B100ModeName(g_mode.mode),
+         " — run RES-SUP OCO.mq5 to actually place it");
   }
 
 void OnTradeTransaction(const MqlTradeTransaction &trans,
@@ -3124,6 +3078,19 @@ void B100HudLabel(const string name, const int x, const int y, const int fs,
   {
    if(ObjectFind(0, name) < 0)
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+   // An OBJ_LABEL whose OBJPROP_TEXT is "" does NOT render as nothing — the
+   // terminal falls back to its default caption, the literal word "Label". Every
+   // "this row has no content" branch below used to write "", so each one painted
+   // a stray "Label" instead of disappearing: one in mint where HUMAN would go,
+   // and one over the box row, because the empty rails label shares that row's y.
+   // That is the overlap, and it is also why deleting an object *named* "Label"
+   // never removed it. Hide the object instead, and only then set text.
+   if(text == "")
+     {
+      ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_NO_PERIODS);
+      return;
+     }
+   ObjectSetInteger(0, name, OBJPROP_TIMEFRAMES, OBJ_ALL_PERIODS);
    ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
    ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
    ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
@@ -3175,7 +3142,11 @@ void B100PaintHud()
 
    // Mode / auto-trade — the number that answers "will this actually fire".
    const bool can_send = B100BrokerOrderIntentPermitted(g_mode);
-   const string mode_line = "mode " + B100ModeName(g_mode.mode) + "   auto " + (can_send ? "ON" : "OFF");
+   // "orders", not "auto": the question this row answers is whether anything
+   // will actually reach the broker, and "auto OFF" was read as "manual trading
+   // still works". It does not — OBSERVE sends nothing either way.
+   const string mode_line = "mode " + B100ModeName(g_mode.mode) +
+                            "   orders " + (can_send ? "ON" : "OFF");
    const color mode_clr = can_send ? C'110,180,130' : C'150,152,160';
    B100HudLabel(LBL_MODE, x_text, cy, 9, font, mode_clr, mode_line);
    cy += B100_ROW_SM + 2;
@@ -3248,12 +3219,14 @@ void B100PaintHud()
       const double spread_now = MathMax(SymbolInfoDouble(_Symbol, SYMBOL_ASK) -
                                         SymbolInfoDouble(_Symbol, SYMBOL_BID), _Point);
       const double h_spreads = (spread_now > 0.0) ? g_box.height / spread_now : 0.0;
-      boxinfo = "box " + DoubleToString(g_box.height, _Digits) + " = " +
-                DoubleToString(h_spreads, 1) + "x spread";
+      // Carry the floor, not just the verdict. "LOW" alone did not say low
+      // against what, so the row could not be acted on without opening Inputs.
+      boxinfo = "box " + DoubleToString(h_spreads, 1) + "x spread";
       if(InpMinBoxSpreads > 0.0)
         {
          const bool over_floor = (h_spreads >= InpMinBoxSpreads);
-         boxinfo += over_floor ? "  OK" : "  LOW";
+         boxinfo += " (need " + DoubleToString(InpMinBoxSpreads, 0) + "x)" +
+                    (over_floor ? "  big enough" : "  TOO SMALL");
          boxinfo_clr = over_floor ? C'110,180,130' : C'196,164,92';
         }
      }
@@ -3267,8 +3240,14 @@ void B100PaintHud()
 
    // The learned policy. Sample size travels with the estimate on purpose — a
    // probability from 14 closed trades and one from 400 must not read the same.
-   const string modelline = "model n=" + IntegerToString(g_policy.n) + " (" + g_policy.source + ")" +
-                            (g_policy.mean_r != 0.0 ? "  R=" + DoubleToString(g_policy.mean_r, 3) : "");
+   // "n=0 (DEFAULT)" read as a model that had scored zero. It means the opposite:
+   // nothing has been learned yet, so the shipped defaults are in force.
+   const string modelline = (g_policy.n <= 0)
+                            ? "model  not trained yet, using defaults"
+                            : ("model  " + IntegerToString(g_policy.n) + " trades (" +
+                               g_policy.source + ")" +
+                               (g_policy.mean_r != 0.0
+                                ? "  R=" + DoubleToString(g_policy.mean_r, 3) : ""));
    B100HudLabel(LBL_MODEL, x_text, cy, 9, font, C'140,136,128', modelline);
    cy += B100_ROW_SM + 2;
 

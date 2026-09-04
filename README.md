@@ -2,9 +2,10 @@
 
 M30 box-breakout expert for **BREAK100** (Boom-class synthetic) on MetaTrader 5.
 
-**EA v2.31** · chart **M30 only** · live orders **gated, off by default** · **not a profit claim**
+**EA v2.33** · chart **M30 only** · EA sends **no orders at all** · order placement lives in `RES-SUP OCO.mq5`, which **is live-enabled (real money)** · **not a profit claim**
 
-`OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (input + real account + login allowlist + armed chart button, never persisted)`
+EA: `OBSERVE → SHADOW` (detection, drawing, Telegram, Shadow ledger — never an order).
+Orders: `RES-SUP OCO.mq5`, launched by hand per snapshot. Demo freely; **live accounts enabled by default** since v1.01 (`DECISION_LOG` D-007).
 
 ---
 
@@ -16,7 +17,7 @@ It does **not** fade a range. It waits for a **tight M30 pause** (a box), watche
 
 **Telegram** (M30 chart only) sends WATCH / ENTRY / TP / SL as replies on that day's signal. A short emoji **status** goes out every 6 hours.
 
-**Real** accounts are for ticks and capture. **DEMO_AUTO** may place pending stops on a **demo** login only. **LIVE is rejected** in the source. AutoTrading stays **OFF** on a real account.
+Since v2.33 the **EA itself places no orders on any account or mode** — it detects, draws, alerts and logs. Orders come only from `mql5/Scripts/RES-SUP OCO.mq5`, which you launch by hand. That script **will trade a real account** (owner-authorised, `DECISION_LOG` D-007); set `InpAllowLiveTrading = false` in its input dialog to make a live run a no-op.
 
 ML/RL reads closed fills and can SKIP / BUY-only / SELL-only / both. That is a learning loop, not a proven edge.
 
@@ -40,8 +41,8 @@ Do **not** attach this EA on M1 / M5 / M15 if you want one Telegram stream.
 |---|---|
 | **OBSERVE** | Draw the box, send Telegram, log data. No broker orders. |
 | **SHADOW** | Same, plus a virtual fill/close ledger. |
-| **DEMO_AUTO** | Pending BUY STOP + SELL STOP on a **demo** account if risk gates pass. |
-| **LIVE** | Forced off. Source will not send live orders. |
+| *(orders)* | Not the EA's job any more — run `mql5/Scripts/RES-SUP OCO.mq5`. |
+| **DEMO_AUTO / LIVE** | Selectable, but since v2.33 the EA no longer places orders in any mode. The inputs remain for the mode/health machinery the HUD and Shadow ledger read. |
 
 ---
 
@@ -49,12 +50,19 @@ Do **not** attach this EA on M1 / M5 / M15 if you want one Telegram stream.
 
 Desktop MT5 only. Not the iPhone app.
 
-1. Pull this repo (`git pull origin master` in `synthetic-indices`).
-2. Copy `mql5/Experts/Break100 Box Trading.mq5` and `mql5/Include/Break100/*` into the terminal `MQL5` folder. Compile in MetaEditor (**F7**). Expect **0 errors**.
-3. Open **BREAK100, M30**. Attach **BREAK100**. Inputs: strategy **BOX_M30**, mode **OBSERVE** (or SHADOW). AutoTrading **OFF** on real.
-4. Experts log should show `B100 Telegram ON  chart=M30`. Other timeframes log `Telegram OFF`.
+1. From the repo's `mql5\` folder on the Windows box, one command pulls, copies, and compiles the EA and the script into every MT5 terminal it finds:
+   ```powershell
+   .\Install-Break100-Box-Trading.ps1 -Pull -SyncHF
+   ```
+   (`-Pull` and `-SyncHF` are both optional — see the script's own header comment. Its compile step uses the MetaEditor CLI, so **F7 is not required by hand** unless you'd rather do it manually.)
+2. Open **BREAK100, M30**. Attach **Break100 Box Trading** (Experts) — detection, HUD, Telegram, Shadow ledger. Inputs: strategy **BOX_M30**, mode **OBSERVE** (or SHADOW).
+3. Experts log should show `B100 Telegram ON  chart=M30`. Other timeframes log `Telegram OFF`.
 
 Step-by-step: [mql5/START_HERE.txt](mql5/START_HERE.txt) · [mql5/INSTALL.txt](mql5/INSTALL.txt)
+
+**To actually place orders**, drag `RES-SUP OCO` (Scripts) onto the chart whenever you see a RES/SUP snapshot you want to act on. It's opt-in and manual — one launch per snapshot. See its own header comment for inputs and a demo-account test procedure.
+
+> **This script trades real money.** Since v1.01 `InpAllowLiveTrading` defaults to `true` and there is no account allowlist, so on a live account it places live orders (owner-authorised, `DECISION_LOG` D-007). Set it to `false` in the input dialog to make a live run a no-op. Note the strategy has **no measured edge** — see [Honest limits](#honest-limits) and `research/BACKTEST_RESULTS.md`.
 
 ---
 
@@ -119,7 +127,9 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/Break100 Box Trading.mq5` | Chart EA (v2.31) |
+| `mql5/Experts/Break100 Box Trading.mq5` | Chart EA (v2.33) — detects boxes, draws RES/SUP, HUD/Telegram/Shadow ledger. Places no orders since v2.33. |
+| `mql5/Scripts/RES-SUP OCO.mq5` | Standalone (v1.01): places the BUY STOP + SELL STOP pair off the chart's RES/SUP, cancels the sibling on fill. Run manually per snapshot. **Live accounts enabled** — real money. |
+| `mql5/Install-Break100-Box-Trading.ps1` | One command: `-Pull` (git pull), copy EA + script + Include into every MT5 terminal found, compile both via the MetaEditor CLI, `-SyncHF` (HF sync). Everything except dragging the compiled files onto a chart. |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
@@ -138,6 +148,8 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **2.33** | OCO placement moved out of the EA into a standalone script, `mql5/Scripts/RES-SUP OCO.mq5` — it reads the EA's own RES/SUP rails, places BUY STOP + SELL STOP with SL/TP already attached, and cancels the sibling on fill by polling (a Script has no `OnTradeTransaction`). The EA still detects, gates, draws RES/SUP, and logs to the Shadow ledger, but no longer calls `OrderSend` for the box path — running the EA and the script together can no longer double-place an order. |
+| **2.32** | Fixed `B100ArmBoxOco`: an unbraced `if` had made its `return` unconditional since v2.23, so OCO placement (and 4 sites of the same shape below it) never actually ran in any mode. Bar catch-up after a stall walked newest-first and dropped every older bar in the gap; fixed to oldest-first. HUD rows with no content painted the terminal's default "Label" caption instead of nothing — fixed, plus reworded wording (`orders ON/OFF`, box-floor multiple, untrained-model state). |
 | **2.24–2.31** | Two-leg OCO (runner to TP3); manual trades and one-click entry logged to the shadow ledger; LIVE-init bug fixed (real-account check was silently forcing OBSERVE after the gate already passed); Telegram audit (duplicate alerts, runner-blind cancels, orphaned-pending fix, stale self-test version); history-box repaint fixed; on-chart dashboard mirrors the Telegram alert. |
 | **2.23** | Shadow ledger runs in every mode for every box, filtered or not, tagged with the execution decision; capture CSVs versioned to v2 with a header matching the rows. |
 | **2.22** | Box-size trade filter (`InpMinBoxSpreads`); stop re-anchored to the actual fill after a gapped entry; broker `trade_stops_level` honoured. |

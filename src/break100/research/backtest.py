@@ -22,6 +22,7 @@ import statistics as st
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from break100.research.policy import quantile
 from break100.research.replay import BoxEvent
 
 SECONDS_PER_DAY = 86_400
@@ -91,6 +92,28 @@ class Trade:
     r_multiple: float
     pnl: float
     reason: Exit
+    # --- tick path, measured on the same marks the exit uses (bid long / ask short).
+    # r_multiple alone says where the trade ended; these say where it went. An exit
+    # rule can only ever give back what the path offered, so a strategy with no
+    # favourable excursion is not fixable by re-tuning targets.
+    mfe_r: float = 0.0
+    """Maximum favourable excursion, in R. Never negative."""
+    mae_r: float = 0.0
+    """Maximum adverse excursion, in R. Never positive."""
+    seconds_to_mfe: int = 0
+    """Seconds from fill to the favourable extreme. On a winner this is time-to-win;
+    on a loser it is when the trade was best placed before it turned over."""
+    seconds_to_mae: int = 0
+    """Seconds from fill to the adverse extreme. On a winner this is when the heat
+    peaked; on a loser it is time-to-stop.
+
+    Note the exit tick is itself an extreme — a TP exit sets the MFE and an SL exit
+    sets the MAE — so asking which extreme came *first* mostly just restates the
+    exit type. The timings are kept because they are informative about horizon;
+    their ordering is not, so nothing derives a signal from it.
+    """
+    entry_slippage_r: float = 0.0
+    """Fill worse than the stop-order price, in R. Positive = paid away."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,7 +236,18 @@ def _simulate_one(
     if lots <= 0.0:
         return None
 
+    # The stop order was resting at buy_stop/sell_stop; `entry` is what the book
+    # actually paid once the level was crossed. BACKTEST_RESULTS.md flags this gap
+    # as the unmeasured term between theoretical (-0.075R) and measured (-0.164R)
+    # expectancy, so carry it per trade instead of inferring it.
+    intended = event.buy_stop if direction > 0 else event.sell_stop
+    entry_slippage_r = ((entry - intended) * direction) / sl_dist
+
+    entry_t = book.time[entry_i] // 1000
     best = entry
+    worst = entry
+    t_best = entry_t
+    t_worst = entry_t
     exit_deadline = event.armed_bar + cfg.bar_seconds * (1 + cfg.timeout_bars * 2)
     for i in range(entry_i + 1, len(book)):
         t = book.time[i] // 1000
@@ -223,6 +257,10 @@ def _simulate_one(
 
         if gain > (best - entry) * direction:
             best = mark
+            t_best = t
+        if gain < (worst - entry) * direction:
+            worst = mark
+            t_worst = t
         if cfg.breakeven_at_r > 0.0 and gain >= cfg.breakeven_at_r * sl_dist:
             be = entry + direction * round_trip
             stop = max(stop, be) if direction > 0 else min(stop, be)
@@ -254,6 +292,11 @@ def _simulate_one(
                 r_multiple=move / sl_dist,
                 pnl=pnl,
                 reason=reason,
+                mfe_r=((best - entry) * direction) / sl_dist,
+                mae_r=((worst - entry) * direction) / sl_dist,
+                seconds_to_mfe=t_best - entry_t,
+                seconds_to_mae=t_worst - entry_t,
+                entry_slippage_r=entry_slippage_r,
             )
     return None
 
@@ -286,6 +329,108 @@ def run(
             cooldown_until = trade.exit_time + cfg.cooldown_bars * cfg.bar_seconds
 
     return summarise(label, trades, curve, starting_equity, equity)
+
+
+@dataclass(frozen=True, slots=True)
+class Asymmetry:
+    """Payoff shape of one configuration, measured from the tick path.
+
+    `BACKTEST_RESULTS.md` established that direction on BREAK100 is a coin flip:
+    the 46.7% measured win rate is the 46.25% a driftless walk predicts from spread
+    geometry. That closes off direction prediction and leaves exactly one question —
+    whether winners run further than losers' stops, after costs. These are the
+    numbers that answer it.
+
+    `edge_ratio` is the one to read first. It compares how far price travelled in
+    favour against how far it travelled against, and it does not depend on where
+    the exits were placed, so it separates "this instrument offers nothing" from
+    "the exits are badly tuned". At 1.0 the path is symmetric and no exit rule can
+    manufacture an edge from it.
+    """
+
+    trades: int
+    edge_ratio: float
+    """mean(MFE) / mean(|MAE|). Exit-rule independent. 1.0 = symmetric path."""
+    capture: float
+    """mean(R) / mean(MFE). How much of the offered move the exits actually took."""
+    payoff_ratio: float
+    """avg win R / |avg loss R|."""
+    tail_ratio: float
+    """q90(R) / |q10(R)|. Asymmetry in the tails rather than the averages."""
+    mean_mfe_r: float
+    mean_mae_r: float
+    mae_when_win: float
+    """Mean MAE of winners. If winners dip much less first, entry timing matters."""
+    mae_when_loss: float
+    mfe_when_loss: float
+    """Mean MFE of losers. How much was on the table before they turned over."""
+    median_seconds_to_mfe: float
+    """Median time from fill to the favourable extreme — how fast the trade works."""
+    median_seconds_to_mae: float
+    """Median time from fill to the adverse extreme — how long it bleeds."""
+    mean_slippage_r: float
+    """Mean entry fill worse than the resting stop price, in R."""
+    median_r: float
+
+    def line(self) -> str:
+        return (
+            f"{self.trades:>7}{self.edge_ratio:>9.3f}{self.capture:>9.3f}"
+            f"{self.payoff_ratio:>9.3f}{self.tail_ratio:>9.3f}"
+            f"{self.mean_mfe_r:>9.3f}{self.mean_mae_r:>9.3f}"
+            f"{self.median_seconds_to_mfe:>9.0f}{self.median_seconds_to_mae:>9.0f}"
+            f"{self.mean_slippage_r:>9.3f}"
+        )
+
+    @staticmethod
+    def header() -> str:
+        return (
+            f"{'trades':>7}{'edge':>9}{'capture':>9}{'payoff':>9}{'tail':>9}"
+            f"{'mfe_r':>9}{'mae_r':>9}{'s_mfe':>9}{'s_mae':>9}{'slip_r':>9}"
+        )
+
+
+def asymmetry(trades: list[Trade]) -> Asymmetry:
+    """Measure payoff asymmetry from the recorded tick paths.
+
+    Zero-safe throughout: a denominator that cannot be formed yields 0.0 rather
+    than an exception or an infinity, so a thin configuration reports a flat
+    result instead of poisoning a comparison table.
+    """
+    n = len(trades)
+    if n == 0:
+        return Asymmetry(0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+    r_values = [t.r_multiple for t in trades]
+    mfes = [t.mfe_r for t in trades]
+    maes = [abs(t.mae_r) for t in trades]
+    mean_mfe = math.fsum(mfes) / n
+    mean_mae = math.fsum(maes) / n
+    mean_r = math.fsum(r_values) / n
+
+    wins = [t for t in trades if t.pnl > 0]
+    losses = [t for t in trades if t.pnl <= 0]
+    avg_win = math.fsum(t.r_multiple for t in wins) / len(wins) if wins else 0.0
+    avg_loss = math.fsum(t.r_multiple for t in losses) / len(losses) if losses else 0.0
+
+    q90 = quantile(r_values, 0.90)
+    q10 = quantile(r_values, 0.10)
+
+    return Asymmetry(
+        trades=n,
+        edge_ratio=(mean_mfe / mean_mae) if mean_mae > 0 else 0.0,
+        capture=(mean_r / mean_mfe) if mean_mfe > 0 else 0.0,
+        payoff_ratio=(avg_win / abs(avg_loss)) if avg_loss < 0 else 0.0,
+        tail_ratio=(q90 / abs(q10)) if q10 < 0 else 0.0,
+        mean_mfe_r=mean_mfe,
+        mean_mae_r=-mean_mae,
+        mae_when_win=(math.fsum(t.mae_r for t in wins) / len(wins)) if wins else 0.0,
+        mae_when_loss=(math.fsum(t.mae_r for t in losses) / len(losses)) if losses else 0.0,
+        mfe_when_loss=(math.fsum(t.mfe_r for t in losses) / len(losses)) if losses else 0.0,
+        median_seconds_to_mfe=quantile([float(t.seconds_to_mfe) for t in trades], 0.50),
+        median_seconds_to_mae=quantile([float(t.seconds_to_mae) for t in trades], 0.50),
+        mean_slippage_r=math.fsum(t.entry_slippage_r for t in trades) / n,
+        median_r=quantile(r_values, 0.50),
+    )
 
 
 def summarise(

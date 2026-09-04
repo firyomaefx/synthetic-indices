@@ -1,12 +1,19 @@
-Break100 Box Trading v2.31 — START HERE
-===========================
+Break100 Box Trading v2.33 + RES-SUP OCO v1.01 — START HERE
+=============================================================
 
 What this is
   M30 box breakout on BREAK100. Watch both stops. First fill cancels the other.
   Armed box = WATCH (small arrows on both stops, not a fill). Mint/magenta arrow + Alert only after M30 close outside.
   After fill: dotted SL / ENTRY / TP1 / TP2 / TP3 with the price on each line.
   Rays hide when TP3 / SL / time-exit hits (not left up as a fake live setup).
-  Telegram from the M30 chart only. Live orders locked. Not a profit claim.
+  Telegram from the M30 chart only. Not a profit claim.
+
+  Two files now, split by job:
+    Break100 Box Trading.mq5 (Expert) -- detects, draws, alerts, logs. Sends
+      NO broker orders, in any mode, as of v2.33.
+    RES-SUP OCO.mq5 (Script) -- THIS places the orders, off the EA's own
+      RES/SUP. As of v1.01 it trades a LIVE account by DEFAULT (owner-
+      authorised). Demo it first.
 
 Human boxes
   On M30 draw Insert → Objects → Rectangle over the pause (before the big candle).
@@ -16,10 +23,17 @@ Human boxes
   EA writes Common\\Files\\BREAK100_human_box_BREAK100.csv. Not B100_* names (those are EA).
 
 Attach
-  1. Compile Break100 Box Trading.mq5 in MetaEditor (F7). 0 errors.
-  2. Chart: BREAK100, timeframe M30 only.
-  3. Attach EA. InpStrategy = BOX_M30. InpMode = OBSERVE (or SHADOW).
-  4. Real account: AutoTrading OFF. Experts log: B100 Telegram ON  chart=M30
+  0. One command does pull + copy + compile for both files, into every
+     terminal found: from mql5\, run
+       .\Install-Break100-Box-Trading.ps1 -Pull -SyncHF
+     Or by hand: compile Break100 Box Trading.mq5 AND RES-SUP OCO.mq5 in
+     MetaEditor (F7 each). 0 errors on both.
+  1. Chart: BREAK100, timeframe M30 only.
+  2. Attach the EA (Experts). InpStrategy = BOX_M30. InpMode = OBSERVE (or SHADOW).
+     Experts log: B100 Telegram ON  chart=M30
+  3. When RES/SUP appear, drag RES-SUP OCO (Scripts) onto the chart to
+     actually place the order pair. Check its input dialog every time --
+     InpAllowLiveTrading defaults to true. Demo account first, always.
 
 Telegram (Common\Files\BREAK100_telegram.txt — not in git)
   token=...
@@ -33,8 +47,10 @@ Hugging Face (Common\Files\BREAK100_hf.txt — not in git)
   Run tools\Install-BREAK100-HF-Sync.ps1 (every 15 min: merge, retrain, push/pull)
   Need 16+ quality=1 rows in BREAK100_train_*.csv
 
-Modes
+Modes (InpMode on the EA -- these gate the HUD/Shadow machinery only; the
+EA itself never sends an order in any of them as of v2.33)
   OBSERVE  draw + Telegram + data, no orders
-  SHADOW   virtual fills
-  DEMO_AUTO pending stops on a demo account only
-  LIVE     rejected in source
+  SHADOW   virtual fills, no orders
+  DEMO_AUTO / LIVE  selectable, no different -- the EA still sends nothing.
+           Real order placement is RES-SUP OCO.mq5's job now, and it will
+           trade a real account by default. See its own header comment.
