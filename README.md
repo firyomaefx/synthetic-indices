@@ -2,9 +2,10 @@
 
 M30 box-breakout expert for **BREAK100** (Boom-class synthetic) on MetaTrader 5.
 
-**EA v2.31** · chart **M30 only** · live orders **gated, off by default** · **not a profit claim**
+**EA v2.33** · chart **M30 only** · EA sends **no orders at all** · order placement lives in `RES-SUP OCO.mq5`, which **is live-enabled (real money)** · **not a profit claim**
 
-`OBSERVE → SHADOW → DEMO_AUTO (demo account only) → LIVE (input + real account + login allowlist + armed chart button, never persisted)`
+EA: `OBSERVE → SHADOW` (detection, drawing, Telegram, Shadow ledger — never an order).
+Orders: `RES-SUP OCO.mq5`, launched by hand per snapshot. Demo freely; **live accounts enabled by default** since v1.01 (`DECISION_LOG` D-007).
 
 ---
 
@@ -16,7 +17,7 @@ It does **not** fade a range. It waits for a **tight M30 pause** (a box), watche
 
 **Telegram** (M30 chart only) sends WATCH / ENTRY / TP / SL as replies on that day's signal. A short emoji **status** goes out every 6 hours.
 
-**Real** accounts are for ticks and capture. **DEMO_AUTO** may place pending stops on a **demo** login only. **LIVE is rejected** in the source. AutoTrading stays **OFF** on a real account.
+Since v2.33 the **EA itself places no orders on any account or mode** — it detects, draws, alerts and logs. Orders come only from `mql5/Scripts/RES-SUP OCO.mq5`, which you launch by hand. That script **will trade a real account** (owner-authorised, `DECISION_LOG` D-007); set `InpAllowLiveTrading = false` in its input dialog to make a live run a no-op.
 
 ML/RL reads closed fills and can SKIP / BUY-only / SELL-only / both. That is a learning loop, not a proven edge.
 
@@ -40,8 +41,8 @@ Do **not** attach this EA on M1 / M5 / M15 if you want one Telegram stream.
 |---|---|
 | **OBSERVE** | Draw the box, send Telegram, log data. No broker orders. |
 | **SHADOW** | Same, plus a virtual fill/close ledger. |
-| **DEMO_AUTO** | Pending BUY STOP + SELL STOP on a **demo** account if risk gates pass. |
-| **LIVE** | Forced off. Source will not send live orders. |
+| *(orders)* | Not the EA's job any more — run `mql5/Scripts/RES-SUP OCO.mq5`. |
+| **DEMO_AUTO / LIVE** | Selectable, but since v2.33 the EA no longer places orders in any mode. The inputs remain for the mode/health machinery the HUD and Shadow ledger read. |
 
 ---
 
@@ -57,6 +58,8 @@ Desktop MT5 only. Not the iPhone app.
 Step-by-step: [mql5/START_HERE.txt](mql5/START_HERE.txt) · [mql5/INSTALL.txt](mql5/INSTALL.txt)
 
 **To actually place orders**, copy `mql5/Scripts/RES-SUP OCO.mq5` into `MQL5/Scripts/` too and compile it separately. It's opt-in and manual: drag it onto the chart whenever you see a RES/SUP snapshot you want to act on. See its own header comment for inputs and a demo-account test procedure.
+
+> **This script trades real money.** Since v1.01 `InpAllowLiveTrading` defaults to `true` and there is no account allowlist, so on a live account it places live orders (owner-authorised, `DECISION_LOG` D-007). Set it to `false` in the input dialog to make a live run a no-op. Note the strategy has **no measured edge** — see [Honest limits](#honest-limits) and `research/BACKTEST_RESULTS.md`.
 
 ---
 
@@ -122,7 +125,7 @@ python tools/break100_hf_sync.py
 | Path | What |
 |---|---|
 | `mql5/Experts/Break100 Box Trading.mq5` | Chart EA (v2.33) — detects boxes, draws RES/SUP, HUD/Telegram/Shadow ledger. Places no orders since v2.33. |
-| `mql5/Scripts/RES-SUP OCO.mq5` | Standalone: places the BUY STOP + SELL STOP pair off the chart's RES/SUP, cancels the sibling on fill. Run manually per snapshot. |
+| `mql5/Scripts/RES-SUP OCO.mq5` | Standalone (v1.01): places the BUY STOP + SELL STOP pair off the chart's RES/SUP, cancels the sibling on fill. Run manually per snapshot. **Live accounts enabled** — real money. |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
