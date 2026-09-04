@@ -13,40 +13,59 @@ Chart
   Timeframe: M30
   One chart. Do not run the same EA on M1/M5/M15 if you want one Telegram stream.
 
-Modes (input InpMode)
-  OBSERVE    box + Telegram + capture. No broker orders.
-  SHADOW     same, virtual fills.
-  DEMO_AUTO  BUY STOP + SELL STOP on a DEMO login only. First fill deletes the other.
-  LIVE       locked. Source will not send live orders.
+As of v2.33 the EA sends NO broker orders in any mode. InpMode (OBSERVE/SHADOW/
+DEMO_AUTO/LIVE) still selects the health/mode machinery the HUD and Shadow
+ledger read, but none of it reaches OrderSend any more.
 
-  Real account + DEMO or LIVE input → forced OBSERVE (data only).
-  AutoTrading OFF on a real account.
+Orders are placed only by the Script below, RES-SUP OCO.mq5 -- and as of
+v1.01 it trades a LIVE account by default. See its own section.
 
 Copy files
   From this repo:
     mql5\Experts\Break100 Box Trading.mq5
+    mql5\Scripts\RES-SUP OCO.mq5
     mql5\Include\Break100\*
     mql5\Indicators\BREAK100_Channel.mq5   (only if you use the old channel strategy)
 
   Into every:
     %APPDATA%\MetaQuotes\Terminal\<hash>\MQL5\
-  matching Experts / Include\Break100 / Indicators.
+  matching Experts / Scripts / Include\Break100 / Indicators.
 
-  Or run mql5\Install-Break100-Box-Trading.ps1 after you mirror that tree.
+  Or, from the repo's mql5\ folder, one command does pull + copy + compile
+  for both the EA and the script, into every terminal it finds:
+
+    .\Install-Break100-Box-Trading.ps1 -Pull -SyncHF
+
+  (-Pull runs 'git pull' first; -SyncHF runs the HF sync after a clean
+  compile, if BREAK100_hf.txt is already set up. Both are optional; the bare
+  script with no switches just copies + compiles what's already checked out.)
 
 Compile
-  F4 MetaEditor → open Break100 Box Trading.mq5 → F7.
-  Log must say: 0 errors.
-  Version in the Navigator / Experts tab: 2.31
-  Close MetaEditor. In MT5 Navigator: right-click Experts → Refresh.
+  If you used the .ps1 above, this is already done -- check its output for
+  '0 error' on every file. Otherwise, by hand:
+  F4 MetaEditor → open Break100 Box Trading.mq5 → F7. Log must say 0 errors.
+  Repeat for RES-SUP OCO.mq5.
+  Version in the Navigator / Experts tab: 2.33 (EA), 1.01 (Script).
+  Close MetaEditor. In MT5 Navigator: right-click Experts → Refresh, and
+  right-click Scripts → Refresh.
 
-Attach
+Attach (EA -- detection, HUD, Telegram, Shadow ledger; sends nothing)
   1. Open BREAK100 M30.
-  2. Drag BREAK100 onto the chart.
+  2. Drag Break100 Box Trading onto the chart.
   3. Inputs: InpStrategy = BOX_M30, InpMode = OBSERVE, InpBoxTF = M30,
      InpTelegram = true, InpDrawLevels = true, InpCapture = true.
-  4. Allow live trading is irrelevant on real: DEMO_AUTO will not fire there.
-  5. Experts log: B100 Telegram ON  chart=M30
+  4. Experts log: B100 Telegram ON  chart=M30
+
+Run the script (RES-SUP OCO -- THIS is what places orders, real money by
+default on a real account)
+  1. Wait for RES/SUP to appear on the chart (the EA draws these once a box
+     arms).
+  2. Navigator → Scripts → drag 'RES-SUP OCO' onto the chart.
+  3. Its input dialog opens every time -- check InpAllowLiveTrading and
+     InpLots before you click OK. Demo account first, always.
+  4. It places a BUY STOP + SELL STOP off RES/SUP with SL/TP already
+     attached, watches for a fill, cancels the sibling, then exits. Read
+     the manual test procedure in its own header comment before going live.
 
 Telegram
   File (not in git):
@@ -73,6 +92,8 @@ After fill
 
 Do not
   - Commit telegram or HF tokens
-  - Enable Live
+  - Run RES-SUP OCO.mq5 on a live account before a full demo fill+cancel cycle
   - Treat SKIP / runner policy as an edge
-  - Claim this system is profitable
+  - Claim this system is profitable -- research/BACKTEST_RESULTS.md measures
+    -4.90% ROI / -0.164R over 3.56M ticks, best of 20 configs at t=+0.12
+    against the ~2.45 bar it needed to clear
