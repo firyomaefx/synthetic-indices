@@ -130,6 +130,7 @@ python tools/break100_hf_sync.py
 | `mql5/Experts/Break100 Box Trading.mq5` | Chart EA (v2.33) — detects boxes, draws RES/SUP, HUD/Telegram/Shadow ledger. Places no orders since v2.33. |
 | `mql5/Scripts/RES-SUP OCO.mq5` | Standalone (v1.01): places the BUY STOP + SELL STOP pair off the chart's RES/SUP, cancels the sibling on fill. Run manually per snapshot. **Live accounts enabled** — real money. |
 | `mql5/Install-Break100-Box-Trading.ps1` | One command: `-Pull` (git pull), copy EA + script + Include into every MT5 terminal found, compile both via the MetaEditor CLI, `-SyncHF` (HF sync). Everything except dragging the compiled files onto a chart. |
+| `mql5/Check-Break100-Install.ps1` | Read-only doctor. Reports what is actually deployed and compiled in every MT5 terminal, and what the repo checkout holds, so "my update didn't take effect" is answered from evidence. Changes nothing. |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
