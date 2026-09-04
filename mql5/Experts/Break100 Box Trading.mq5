@@ -1,19 +1,19 @@
 #property copyright "Break100 Box Trading"
-#property version   "2.32"
+#property version   "2.33"
 #property description "Break100 Box Trading — M30 box breakout with OCO rails."
+#property description "2.33  OCO placement moved to RES-SUP OCO.mq5 script; EA now detects/logs only"
 #property description "2.32  fixed unreachable OCO placement; empty HUD rows no longer paint \"Label\""
 #property description "2.31  fixed orphaned BUY runner pending when SELL leg1 placement fails"
 #property description "2.30  Telegram audit: fixed dup TP/close alerts, runner-blind cancels, stale self-test ver"
 #property description "2.29  fixed history-box repaint (n_boxes not hist_n); button/Label diagnostics"
-#property description "2.28  fixed dashboard spacing bug that pushed LIVE/ENTER off-screen"
-// Older history (2.27 and earlier) dropped from here: MetaEditor caps the
+// Older history (2.28 and earlier) dropped from here: MetaEditor caps the
 // combined length of all #property description lines around 500 chars and
 // silently truncates or warns past it. Full history stays in CHANGE_LOG.md.
 
 // Keep in step with #property version above. MQL5 exposes no macro for the
 // property, so this duplicate is the only way to report the build at runtime —
 // and the two drift apart the moment someone edits one and not the other.
-#define B100_VERSION "2.32"
+#define B100_VERSION "2.33"
 
 #include <Break100/Channel.mqh>
 #include <Break100/Mode.mqh>
@@ -1569,84 +1569,30 @@ void B100ArmBoxOco(const double bid, const double ask)
    // Shadow is armed in OnTick for every box, filtered or not. Arming it here
    // as well would only ever record boxes that survived all eight gates above.
 
-   if(B100BrokerOrderIntentPermitted(g_mode))
-     {
-      B100DemoCancelAllPendings();
-      string err = "";
-      ulong tb = 0, ts = 0, tb2 = 0, ts2 = 0;
-      // Runner target: TP3 when we have levels, else fall back to the leg-1 TP
-      // so a runner is never sent without a target.
-      const double run_tp_buy  = (g_levels.valid && g_levels.tp3 > 0.0) ? g_levels.tp3 : tp_buy;
-      const double run_tp_sell = (g_levels.valid && g_levels.tp3 > 0.0) ? g_levels.tp3 : tp_sell;
-      // Only advertise a runner target when a runner leg will actually be
-      // placed below. Setting these unconditionally meant the WATCH alert and
-      // the dashboard both claimed a "TP3 (runner)" leg with InpTwoLegs=false,
-      // describing an order that was never sent.
-      g_oco_tp3_buy  = InpTwoLegs ? run_tp_buy : 0.0;
-      g_oco_tp3_sell = InpTwoLegs ? run_tp_sell : 0.0;
-      if(want_buy)
-        {
-         if(!B100DemoPlacePending(ORDER_TYPE_BUY_STOP, buy_px, sl_buy, tp_buy, lots, g_oco_sid + ":B1", tb, err))
-           {
-            Print("B100 OCO BUY_STOP failed ", err);
-            B100OcoClearTickets();
-            B100TelegramWatch();
-            return;
-           }
-         if(InpTwoLegs)
-           {
-            string err_r = "";
-            if(!B100DemoPlacePending(ORDER_TYPE_BUY_STOP, buy_px, sl_buy, run_tp_buy, lots,
-                                     g_oco_sid + ":R:B2", tb2, err_r))
-               Print("B100 runner BUY leg failed ", err_r, " — leg 1 continues alone");
-           }
-        }
-      if(want_sell)
-        {
-         string err_s = "";
-         if(!B100DemoPlacePending(ORDER_TYPE_SELL_STOP, sell_px, sl_sell, tp_sell, lots, g_oco_sid + ":S1", ts, err_s))
-           {
-            Print("B100 OCO SELL_STOP failed ", err_s);
-            string cerr = "";
-            if(tb != 0)
-               B100DemoCancelTicket(tb, cerr);
-            // tb2 (the BUY runner) can already be live at this point — it is
-            // placed right after BUY leg 1, before SELL is ever attempted. This
-            // was previously left uncancelled: an orphaned, untracked pending
-            // that no EA state pointed to, resting on the broker until the next
-            // box's B100DemoCancelAllPendings happened to sweep it up.
-            if(tb2 != 0)
-               B100DemoCancelTicket(tb2, cerr);
-            B100OcoClearTickets();
-            B100TelegramWatch();
-            return;
-           }
-        }
-      if(want_sell && InpTwoLegs)
-        {
-         string err_r2 = "";
-         if(!B100DemoPlacePending(ORDER_TYPE_SELL_STOP, sell_px, sl_sell, run_tp_sell, lots,
-                                  g_oco_sid + ":R:S2", ts2, err_r2))
-            Print("B100 runner SELL leg failed ", err_r2, " — leg 1 continues alone");
-        }
-      g_oco_buy_tk   = tb;
-      g_oco_sell_tk  = ts;
-      g_oco_buy_tk2  = tb2;
-      g_oco_sell_tk2 = ts2;
-      g_runner_stage = 0;
-      g_last_exec_bar = g_box.armed_bar;
-     }
+   // v2.33: this EA no longer places the OCO pendings itself. Execution moved
+   // to the standalone "RES-SUP OCO.mq5" script (mql5/Scripts/) so the EA and
+   // the script can never both try to place orders for the same box. This
+   // function still runs every gate above (box-size floor, direction gate,
+   // rails-crossed, broker stops-level) purely to keep computing g_levels for
+   // the HUD, the Shadow-ledger counterfactual, and the Telegram WATCH alert —
+   // it just never reaches OrderSend. g_oco_buy_tk/_sell_tk/_tk2/_tk2 are left
+   // permanently 0, which makes OnTradeTransaction's and B100TelegramFill's
+   // sibling-cancel branches (both guarded on ticket != 0) inert no-ops rather
+   // than dead code to strip — nothing else in this EA places a ticket into
+   // them any more.
+   g_oco_tp3_buy  = 0.0;
+   g_oco_tp3_sell = 0.0;
 
-   B100ShadowSetDecision(g_shadow,
-                         B100BrokerOrderIntentPermitted(g_mode) ? "TRADED" : "SKIP_MODE");
+   B100ShadowSetDecision(g_shadow, "SKIP_EXTERNAL_EXEC");
    B100FibClear();
    B100TelegramWatch();
-   Print("B100 OCO armed ", (want_buy && want_sell ? "BOTH" : (want_buy ? "BUY only" : "SELL only")),
-         "  first fill cancels the other  gate=", g_box.dir_gate,
+   Print("B100 box would trade ", (want_buy && want_sell ? "BOTH" : (want_buy ? "BUY only" : "SELL only")),
+         "  gate=", g_box.dir_gate,
          " BUY ", DoubleToString(buy_px, _Digits),
          "  SELL ", DoubleToString(sell_px, _Digits),
          "  lots=", DoubleToString(lots, 2),
-         "  mode=", B100ModeName(g_mode.mode));
+         "  mode=", B100ModeName(g_mode.mode),
+         " — run RES-SUP OCO.mq5 to actually place it");
   }
 
 void OnTradeTransaction(const MqlTradeTransaction &trans,

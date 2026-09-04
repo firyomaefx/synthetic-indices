@@ -56,6 +56,8 @@ Desktop MT5 only. Not the iPhone app.
 
 Step-by-step: [mql5/START_HERE.txt](mql5/START_HERE.txt) · [mql5/INSTALL.txt](mql5/INSTALL.txt)
 
+**To actually place orders**, copy `mql5/Scripts/RES-SUP OCO.mq5` into `MQL5/Scripts/` too and compile it separately. It's opt-in and manual: drag it onto the chart whenever you see a RES/SUP snapshot you want to act on. See its own header comment for inputs and a demo-account test procedure.
+
 ---
 
 ## Telegram
@@ -119,7 +121,8 @@ python tools/break100_hf_sync.py
 
 | Path | What |
 |---|---|
-| `mql5/Experts/Break100 Box Trading.mq5` | Chart EA (v2.31) |
+| `mql5/Experts/Break100 Box Trading.mq5` | Chart EA (v2.33) — detects boxes, draws RES/SUP, HUD/Telegram/Shadow ledger. Places no orders since v2.33. |
+| `mql5/Scripts/RES-SUP OCO.mq5` | Standalone: places the BUY STOP + SELL STOP pair off the chart's RES/SUP, cancels the sibling on fill. Run manually per snapshot. |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
 | `tools/break100_hf_train.py` | Tabular trainer → `policy.csv` |
 | `tools/break100_hf_sync.py` | Merge train/policy with the Hub |
@@ -138,6 +141,8 @@ python -m compileall -q src tests
 
 | Ver | Change |
 |---|---|
+| **2.33** | OCO placement moved out of the EA into a standalone script, `mql5/Scripts/RES-SUP OCO.mq5` — it reads the EA's own RES/SUP rails, places BUY STOP + SELL STOP with SL/TP already attached, and cancels the sibling on fill by polling (a Script has no `OnTradeTransaction`). The EA still detects, gates, draws RES/SUP, and logs to the Shadow ledger, but no longer calls `OrderSend` for the box path — running the EA and the script together can no longer double-place an order. |
+| **2.32** | Fixed `B100ArmBoxOco`: an unbraced `if` had made its `return` unconditional since v2.23, so OCO placement (and 4 sites of the same shape below it) never actually ran in any mode. Bar catch-up after a stall walked newest-first and dropped every older bar in the gap; fixed to oldest-first. HUD rows with no content painted the terminal's default "Label" caption instead of nothing — fixed, plus reworded wording (`orders ON/OFF`, box-floor multiple, untrained-model state). |
 | **2.24–2.31** | Two-leg OCO (runner to TP3); manual trades and one-click entry logged to the shadow ledger; LIVE-init bug fixed (real-account check was silently forcing OBSERVE after the gate already passed); Telegram audit (duplicate alerts, runner-blind cancels, orphaned-pending fix, stale self-test version); history-box repaint fixed; on-chart dashboard mirrors the Telegram alert. |
 | **2.23** | Shadow ledger runs in every mode for every box, filtered or not, tagged with the execution decision; capture CSVs versioned to v2 with a header matching the rows. |
 | **2.22** | Box-size trade filter (`InpMinBoxSpreads`); stop re-anchored to the actual fill after a gapped entry; broker `trade_stops_level` honoured. |
