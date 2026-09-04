@@ -17,8 +17,13 @@
   Omit to install into every terminal found, which is the historical behaviour.
 .PARAMETER Pull
   Run 'git pull' in the repo before copying, so you're always installing what's
-  actually on the branch. No-ops with a warning if this isn't a git checkout
+  actually on the branch. Prints the branch and the resulting commit, because a
+  checkout sitting on the wrong branch is the most likely reason an install
+  appears to change nothing. No-ops with a warning if this isn't a git checkout
   (e.g. an unzipped release with no .git folder).
+.PARAMETER Branch
+  With -Pull, check this branch out before pulling. Use it if your checkout has
+  drifted onto an old branch: -Pull -Branch master
 .PARAMETER SyncHF
   After a clean compile, run tools\break100_hf_sync.py (needs
   Common\Files\BREAK100_hf.txt with a token= and dataset= already in place --
@@ -32,7 +37,8 @@
 param(
   [string]$TerminalDataPath = "",
   [switch]$Pull,
-  [switch]$SyncHF
+  [switch]$SyncHF,
+  [string]$Branch = ""
 )
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -41,6 +47,39 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Src = if (Test-Path (Join-Path $Root "MQL5\Experts")) { Join-Path $Root "MQL5" } else { $Root }
 if (-not (Test-Path (Join-Path $Src "Experts\Break100 Box Trading.mq5"))) {
   throw "Run this from the repo's mql5 folder. Missing Experts\Break100 Box Trading.mq5"
+}
+
+# Read a version straight out of an .mq5 rather than trusting a hardcoded string.
+# Same UTF-8 -> UTF-16 fallback Compile-One uses for logs: MetaEditor may save
+# either, and a silent read failure here would defeat the whole point of the check.
+function Get-MqlVersion([string]$file) {
+  if (-not (Test-Path $file)) { return $null }
+  $text = Get-Content $file -Raw -ErrorAction SilentlyContinue
+  if ([string]::IsNullOrEmpty($text)) {
+    $text = [IO.File]::ReadAllText($file, [Text.Encoding]::Unicode)
+  }
+  $m = [regex]::Match($text, '#property\s+version\s+"([^"]+)"')
+  if ($m.Success) { return $m.Groups[1].Value }
+  return $null
+}
+
+# The OCO script only exists from v2.33 onward. If it is missing, the checkout is
+# on an older branch or commit -- which is exactly the failure that made an
+# earlier install silently deploy v2.31 while reporting v2.33. Name the cause and
+# show where the repo actually is, rather than copying whatever happens to be here.
+$SrcOco = Join-Path $Src "Scripts\RES-SUP OCO.mq5"
+if (-not (Test-Path $SrcOco)) {
+  $where = ""
+  $maybeRepo = Split-Path -Parent $Root
+  if (Test-Path (Join-Path $maybeRepo ".git")) {
+    $b = (git -C $maybeRepo rev-parse --abbrev-ref HEAD 2>$null)
+    $c = (git -C $maybeRepo log --oneline -1 2>$null)
+    $where = "`n  This checkout is on branch '$b' at: $c"
+  }
+  throw ("Missing $SrcOco.`n" +
+         "  That file only exists from v2.33 onward, so this checkout predates it." +
+         $where +
+         "`n  Fix: git pull (on master), then re-run. Do not hand-copy from an old tree.")
 }
 # Only meaningful in the repo layout ($Src -eq $Root): the folder one level up
 # from mql5\ is the repo root, and it either has a .git folder or it doesn't.
@@ -51,11 +90,23 @@ function Invoke-Pull {
     Write-Warning "-Pull: not a git checkout (or running from an unzipped distribution) -- skipped."
     return
   }
+  $cur = (git -C $RepoRoot rev-parse --abbrev-ref HEAD).Trim()
+  Write-Host "repo branch: $cur"
+  if ($Branch -and $Branch -ne $cur) {
+    Write-Host "switching to branch '$Branch'"
+    git -C $RepoRoot checkout $Branch
+    if ($LASTEXITCODE -ne 0) {
+      throw "git checkout $Branch failed (exit $LASTEXITCODE). Resolve it by hand, then re-run."
+    }
+  }
   Write-Host "git pull in $RepoRoot"
   git -C $RepoRoot pull
   if ($LASTEXITCODE -ne 0) {
     throw "git pull failed (exit $LASTEXITCODE). Resolve it by hand, then re-run without -Pull."
   }
+  # Print what we actually landed on. A wrong branch is the single most likely
+  # reason an install appears to do nothing, so make it visible in the output.
+  Write-Host "now at: $((git -C $RepoRoot log --oneline -1).Trim())"
 }
 
 function Find-MetaEditor {
@@ -86,7 +137,19 @@ function Install-Into([string]$mql5) {
   Copy-Item (Join-Path $Src "Scripts\RES-SUP OCO.mq5") (Join-Path $mql5 "Scripts\") -Force
   Copy-Item (Join-Path $Src "Indicators\BREAK100_Channel.mq5") (Join-Path $mql5 "Indicators\") -Force
   Copy-Item (Join-Path $Src "Include\Break100\*") (Join-Path $mql5 "Include\Break100\") -Force
-  Write-Host "  copied -> $mql5"
+  # Confirm what landed matches what we shipped. A copy that silently no-ops (file
+  # locked by a running terminal, permissions, wrong target) otherwise looks fine.
+  $srcEaV  = Get-MqlVersion (Join-Path $Src  "Experts\Break100 Box Trading.mq5")
+  $dstEaV  = Get-MqlVersion (Join-Path $mql5 "Experts\Break100 Box Trading.mq5")
+  $srcOcoV = Get-MqlVersion $SrcOco
+  $dstOcoV = Get-MqlVersion (Join-Path $mql5 "Scripts\RES-SUP OCO.mq5")
+  if ($srcEaV -ne $dstEaV) {
+    Write-Warning "  EA copy mismatch: source $srcEaV but destination $dstEaV in $mql5"
+  }
+  if ($srcOcoV -ne $dstOcoV) {
+    Write-Warning "  Script copy mismatch: source $srcOcoV but destination $dstOcoV in $mql5"
+  }
+  Write-Host "  copied -> $mql5   (EA $dstEaV, Script $dstOcoV)"
 }
 
 function Compile-One([string]$editor, [string]$file, [string]$include) {
@@ -109,6 +172,23 @@ function Compile-One([string]$editor, [string]$file, [string]$include) {
   }
   Write-Host $text
   return ($text -match "0 error")
+}
+
+# MT5 runs the .ex5, never the .mq5. A compile that quietly did nothing leaves the
+# previous build in place and the terminal keeps running the old code -- which
+# looks exactly like "my update did not take effect".
+function Assert-Compiled([string]$mq5) {
+  $ex5 = [System.IO.Path]::ChangeExtension($mq5, ".ex5")
+  $name = Split-Path $mq5 -Leaf
+  if (-not (Test-Path $ex5)) {
+    Write-Warning "  no .ex5 produced for $name -- MT5 has nothing new to load."
+    return $false
+  }
+  if ((Get-Item $ex5).LastWriteTime -lt (Get-Item $mq5).LastWriteTime) {
+    Write-Warning "  compiled binary for $name is OLDER than its source -- MT5 will keep running the previous build."
+    return $false
+  }
+  return $true
 }
 
 function Invoke-HFSync {
@@ -140,9 +220,11 @@ function Invoke-HFSync {
 }
 
 Write-Host "Break100 Box Trading  install"
-Write-Host "EA sends no broker orders in any mode (v2.33: detect/draw/alert/log only)."
+Write-Host "  source EA:     $(Get-MqlVersion (Join-Path $Src 'Experts\Break100 Box Trading.mq5'))"
+Write-Host "  source Script: $(Get-MqlVersion $SrcOco)"
+Write-Host "EA sends no broker orders in any mode -- detect/draw/alert/log only."
 Write-Host "RES-SUP OCO.mq5 (Script) IS the order path and trades LIVE accounts by"
-Write-Host "default as of v1.01 -- demo-test it before dragging it onto a live chart."
+Write-Host "default -- demo-test it before dragging it onto a live chart."
 Write-Host ""
 
 if ($Pull) { Invoke-Pull }
@@ -183,6 +265,9 @@ foreach ($mql5 in $targets) {
   if (-not (Compile-One $editor $ea  $mql5)) { $ok = $false }
   if (-not (Compile-One $editor $exp $mql5)) { $ok = $false }
   if (-not (Compile-One $editor $oco $mql5)) { $ok = $false }
+  # A "0 errors" log is not proof the binary was written. Check the artefact.
+  if (-not (Assert-Compiled $ea))  { $ok = $false }
+  if (-not (Assert-Compiled $oco)) { $ok = $false }
 }
 
 Write-Host ""
@@ -198,6 +283,14 @@ if ($ok) {
   Write-Host "*** comment before you ever run it live."
   Write-Host ""
   Write-Host "History export: Navigator -> Scripts -> 'Break100 Box Trading History Export'."
+  Write-Host ""
+  foreach ($mql5 in $targets) {
+    $vEa  = Get-MqlVersion (Join-Path $mql5 "Experts\Break100 Box Trading.mq5")
+    $vOco = Get-MqlVersion (Join-Path $mql5 "Scripts\RES-SUP OCO.mq5")
+    Write-Host "Deployed: EA $vEa  Script $vOco  ->  $mql5"
+  }
+  Write-Host "If those versions are not what you expected, you pulled the wrong branch --"
+  Write-Host "re-run with -Pull (add -Branch master if your checkout sits elsewhere)."
   if ($SyncHF) { Invoke-HFSync }
   exit 0
 }

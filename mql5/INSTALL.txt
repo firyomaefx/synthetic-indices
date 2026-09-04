@@ -36,9 +36,44 @@ Copy files
 
     .\Install-Break100-Box-Trading.ps1 -Pull -SyncHF
 
-  (-Pull runs 'git pull' first; -SyncHF runs the HF sync after a clean
-  compile, if BREAK100_hf.txt is already set up. Both are optional; the bare
-  script with no switches just copies + compiles what's already checked out.)
+  (-Pull runs 'git pull' first and prints the branch + commit it landed on;
+  -SyncHF runs the HF sync after a clean compile, if BREAK100_hf.txt is already
+  set up. Both optional; the bare script just copies + compiles what is already
+  checked out.)
+
+  Everything ships on master. If your checkout has drifted onto another branch,
+  the installer will refuse rather than quietly deploy an old build -- add
+  -Branch to move it:
+
+    .\Install-Break100-Box-Trading.ps1 -Pull -Branch master
+
+  The installer prints the versions it actually read off disk, e.g.
+    Deployed: EA 2.33  Script 1.01  ->  ...\MQL5
+  If those are not the versions you expect, you are on the wrong branch. It no
+  longer takes a version on trust -- an earlier build printed a hardcoded
+  "v2.33" while deploying v2.31, which is exactly how a stale install went
+  unnoticed.
+
+If nothing seems to change after installing
+  Run the read-only doctor. It changes nothing and prints what is ACTUALLY
+  deployed and compiled in every terminal on this machine:
+
+    .\Check-Break100-Install.ps1
+
+  It separates the three causes that look identical from inside MT5:
+    - files never copied here          (source .mq5 missing)
+    - copied into a terminal MT5 is not using
+    - copied but never compiled        (.ex5 missing or older than the .mq5)
+
+  MT5 loads the compiled .ex5, never the .mq5. A stale .ex5 keeps the old EA
+  running no matter how often you refresh Navigator.
+
+  WHICH FOLDER COUNTS: the installer scans %APPDATA%\MetaQuotes\Terminal\*.
+  A portable or Microsoft Store install can keep its data somewhere else. The
+  authority is MT5's own  File -> Open Data Folder.  If that path is not one
+  the doctor lists, install straight into it:
+
+    .\Install-Break100-Box-Trading.ps1 -TerminalDataPath "<that path>"
 
 Compile
   If you used the .ps1 above, this is already done -- check its output for
