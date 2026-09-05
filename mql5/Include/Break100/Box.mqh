@@ -163,6 +163,30 @@ bool B100ImpulseBefore(const ENUM_TIMEFRAMES tf,
    return true;
   }
 
+// Simple mean true range over `period` closed bars ending at `end_shift`.
+// Deliberately not Wilder's recursive ATR: a recursive seed is exactly the
+// kind of state that silently drifts out of sync between this header and its
+// Python port (boxdetect.py), and iATR's indicator-handle lifecycle does not
+// belong in a header-only include. Returns 0.0 if there is not enough history
+// for a full window -- callers must not treat 0.0 as "detected but flat".
+double B100MeanTrueRange(const ENUM_TIMEFRAMES tf, const int end_shift, const int period)
+  {
+   if(period <= 0)
+      return 0.0;
+   if(iBars(_Symbol, tf) < end_shift + period + 1)
+      return 0.0;
+   double sum = 0.0;
+   for(int i = 0; i < period; i++)
+     {
+      const int sh = end_shift + i;
+      const double h  = iHigh(_Symbol, tf, sh);
+      const double l  = iLow(_Symbol, tf, sh);
+      const double pc = iClose(_Symbol, tf, sh + 1);
+      sum += MathMax(h - l, MathMax(MathAbs(h - pc), MathAbs(l - pc)));
+     }
+   return sum / period;
+  }
+
 bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
                        const int end_shift,
                        const int min_bars,
@@ -236,6 +260,9 @@ bool B100FindClusterAt(const ENUM_TIMEFRAMES tf,
       if(!B100ImpulseBefore(tf, end_shift, n_bars, hi - lo, impulse_k, idir, ih, iv, ba))
          return false;
      }
+   // Recorded now that a box is confirmed -- see B100MeanTrueRange. Output
+   // only: nothing in this function or its callers branches on atr.
+   atr = B100MeanTrueRange(tf, end_shift, atr_period);
    return true;
   }
 

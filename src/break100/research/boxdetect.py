@@ -62,6 +62,13 @@ class Cluster:
     t_left: int
     t_right: int
     bars: int
+    atr: float = 0.0
+    """Mean true range over `BoxParams.atr_period` bars, from `mean_true_range()`.
+
+    Output only -- nothing in detection or execution branches on this.
+    Defaulted so every existing keyword construction of a `Cluster` (fixtures,
+    tests) stays valid without naming it.
+    """
 
     def stops(self, point: float) -> tuple[float, float]:
         """Buy-stop and sell-stop, matching the EA's 2%-of-height offset."""
@@ -146,6 +153,26 @@ def range_pattern(
     return RangePattern(touches_hi, touches_lo, close_loc, compress, h_vs_h4)
 
 
+def mean_true_range(series: Series, end_shift: int, period: int) -> float:
+    """`B100MeanTrueRange()` — simple (not Wilder) mean true range.
+
+    Output only; nothing in detection or execution branches on this. Returns
+    0.0 when there is not enough history for a full window.
+    """
+    if period <= 0:
+        return 0.0
+    if series.bars_available() < end_shift + period + 1:
+        return 0.0
+    total = 0.0
+    for i in range(period):
+        sh = end_shift + i
+        h = series.high(sh)
+        low = series.low(sh)
+        pc = series.close(sh + 1)
+        total += max(h - low, max(abs(h - pc), abs(low - pc)))
+    return total / period
+
+
 def find_cluster_at(
     series: Series,
     end_shift: int,
@@ -218,4 +245,5 @@ def find_cluster_at(
         t_left=series.time(end_shift + n_bars - 1),
         t_right=series.time(end_shift),
         bars=n_bars,
+        atr=mean_true_range(series, end_shift, params.atr_period),
     )

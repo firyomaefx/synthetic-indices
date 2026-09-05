@@ -378,8 +378,14 @@ bool B100PolicyLoad(B100LearnPolicy &p)
    const int fh = FileOpen(B100PolicyFileName(), FILE_READ | FILE_CSV | FILE_ANSI | FILE_COMMON, ',');
    if(fh == INVALID_HANDLE)
       return false;
+   // Count every header cell, not just the first 20. A cap here silently
+   // misaligns every field read below the moment the writer (currently
+   // tools/break100_hf_train.py) emits a header wider than the cap -- e.g. once
+   // it starts writing the optional skip-model block (13 base columns + 1 +
+   // 3x8 = 38). ncols only decides whether the optional p_up/p_dn/p_fail/gate
+   // block below is present; it is never used as a read count itself.
    int ncols = 0;
-   while(!FileIsEnding(fh) && !FileIsLineEnding(fh) && ncols < 20)
+   while(!FileIsEnding(fh) && !FileIsLineEnding(fh))
      {
       FileReadString(fh);
       ncols++;

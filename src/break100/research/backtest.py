@@ -139,6 +139,13 @@ class Report:
     """Expectancy in units of its own standard error. This, not ROI, decides."""
     equity_curve: list[tuple[int, float]] = field(default_factory=list)
     exits: dict[str, int] = field(default_factory=dict)
+    trade_log: list[Trade] = field(default_factory=list)
+    """Every completed round trip this configuration produced, in exit order.
+
+    Kept so callers can run `asymmetry()` on the exact trades a Report summarised,
+    without re-simulating. Named `trade_log`, not `trades` -- `trades` above is
+    already the integer count.
+    """
 
     def line(self) -> str:
         return (
@@ -503,6 +510,7 @@ def summarise(
         expectancy_t=expectancy_t,
         equity_curve=curve,
         exits=exits,
+        trade_log=trades,
     )
 
 

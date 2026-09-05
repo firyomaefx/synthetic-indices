@@ -12,6 +12,7 @@ from break100.research.boxdetect import (
     find_cluster_at,
     h4_span_at,
     impulse_before,
+    mean_true_range,
     range_pattern,
 )
 from break100.research.series import Bar, Series
@@ -80,6 +81,47 @@ def test_insufficient_history_is_rejected() -> None:
     # Needs end_shift + maxb + 2 = 11 bars available.
     assert find_cluster_at(make_series(flat(10)), 1, BoxParams(), h4_span=100.0) is None
     assert find_cluster_at(make_series(flat(11)), 1, BoxParams(), h4_span=100.0) is not None
+
+
+# --- mean true range (previously dead: Box.mqh set atr=0.0 and never touched it again) --
+
+
+def test_mean_true_range_matches_the_hand_computed_value() -> None:
+    # Every bar: high=100, low=90, prior close=95. TR = max(10, |100-95|, |90-95|) = 10.
+    series = make_series(flat(20))
+    assert mean_true_range(series, end_shift=1, period=14) == 10.0
+
+
+def test_mean_true_range_is_zero_without_a_full_window() -> None:
+    # bars_available() must be >= end_shift + period + 1; 16 bars is one short of 17.
+    assert mean_true_range(make_series(flat(16)), end_shift=1, period=15) == 0.0
+    assert mean_true_range(make_series(flat(17)), end_shift=1, period=15) == 10.0
+
+
+def test_mean_true_range_is_zero_for_a_non_positive_period() -> None:
+    series = make_series(flat(20))
+    assert mean_true_range(series, end_shift=1, period=0) == 0.0
+
+
+def test_reviving_atr_does_not_move_any_rail() -> None:
+    # atr is an output only. The cluster's rails and bar count must be identical
+    # to a cluster built before atr existed -- only the new field should differ.
+    series = make_series(flat(20))
+    cluster = find_cluster_at(series, 1, BoxParams(), h4_span=100.0)
+    assert cluster is not None
+    assert cluster.high == 100.0
+    assert cluster.low == 90.0
+    assert cluster.bars == 8
+    assert cluster.atr == 10.0
+
+
+def test_atr_is_zero_when_history_is_too_short_for_a_full_window() -> None:
+    # 11 bars clears the detector's own end_shift+maxb+2=11 floor but is short
+    # of end_shift+atr_period+1=16, so the box still forms and atr stays 0.0.
+    series = make_series(flat(11))
+    cluster = find_cluster_at(series, 1, BoxParams(), h4_span=100.0)
+    assert cluster is not None
+    assert cluster.atr == 0.0
 
 
 def test_zero_h4_span_is_rejected() -> None:

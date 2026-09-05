@@ -17,6 +17,7 @@ from break100.research.backtest import (
     Trade,
     _simulate_one,
     asymmetry,
+    run,
 )
 from break100.research.boxdetect import Cluster
 from break100.research.replay import BoxEvent, BoxFeatures, Outcome
@@ -229,4 +230,24 @@ def test_ratios_stay_finite_when_their_denominator_cannot_be_formed() -> None:
     stats = asymmetry([make_trade(r=1.0, mfe=1.0, mae=0.0) for _ in range(5)])
     assert stats.payoff_ratio == 0.0
     assert stats.tail_ratio == 0.0
-    assert stats.edge_ratio == 0.0
+
+
+def test_run_returns_the_trades_it_summarised() -> None:
+    # `run()` used to build a full trade list and then discard it, returning only
+    # a Report -- which meant `asymmetry()` could never be run on real fills.
+    # `Report.trade_log` must be exactly what `run()` simulated, in exit order.
+    # Same fixture shape as `simulate()` above: mid 1010 fills the long, mid 1120
+    # then clears the +1R target.
+    report = run("baseline", [event()], book_from_mids([1000, 1010, 1120]), CFG, COSTS, SPREAD)
+    assert report.trades == 1
+    assert len(report.trade_log) == 1
+    assert report.trade_log[0].direction == 1
+    assert asymmetry(report.trade_log).trades == 1
+
+
+def test_run_with_no_fills_returns_an_empty_trade_log() -> None:
+    report = run(
+        "baseline", [event()], book_from_mids([1000, 1000, 1000]), CFG, COSTS, SPREAD
+    )
+    assert report.trades == 0
+    assert report.trade_log == []

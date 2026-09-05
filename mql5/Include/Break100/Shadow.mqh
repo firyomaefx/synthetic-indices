@@ -96,9 +96,15 @@ void B100ShadowSetDecision(B100ShadowBook &b, const string decision)
    b.exec_decision = decision;
   }
 
-// One row per closed virtual trade. Rows where exec_decision == "TRADED" are the
-// filtered strategy; all rows together are the unfiltered one. Both read off the
-// same ledger, so no second shadow book is needed.
+// One row per closed virtual trade. As of v2.33, execution moved to a separate
+// script (RES-SUP OCO.mq5) and the EA's own pass-all path ends at exec_decision
+// == "SKIP_EXTERNAL_EXEC" -- "TRADED" is not currently assigned anywhere, so
+// filtering on it returns zero rows. "SKIP_EXTERNAL_EXEC" is today's equivalent
+// of "the strategy would have traded this"; every other exec_decision value is
+// a gate that rejected the box. This ledger does not yet observe whether the
+// external script actually filled the box -- see CONTEXT.md's open capture
+// findings.
+
 void B100ShadowLedgerRow(const B100ShadowBook &b, const int dir, const double entry,
                          const double sl, const double tp, const double exit_px,
                          const string reason)
