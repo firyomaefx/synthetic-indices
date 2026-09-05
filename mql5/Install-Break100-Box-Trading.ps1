@@ -133,8 +133,6 @@ function Install-Into([string]$mql5) {
   New-Item -ItemType Directory -Force -Path (Join-Path $mql5 "Include\Break100") | Out-Null
   New-Item -ItemType Directory -Force -Path (Join-Path $mql5 "Scripts") | Out-Null
   Copy-Item (Join-Path $Src "Experts\Break100 Box Trading.mq5") (Join-Path $mql5 "Experts\") -Force
-  $srcAuto = Join-Path $Src "Experts\RES-SUP OCO Auto.mq5"
-  if (Test-Path $srcAuto) { Copy-Item $srcAuto (Join-Path $mql5 "Experts\") -Force }
   Copy-Item (Join-Path $Src "Scripts\Break100 Box Trading History Export.mq5") (Join-Path $mql5 "Scripts\") -Force
   Copy-Item (Join-Path $Src "Scripts\RES-SUP OCO.mq5") (Join-Path $mql5 "Scripts\") -Force
   Copy-Item (Join-Path $Src "Indicators\BREAK100_Channel.mq5") (Join-Path $mql5 "Indicators\") -Force
@@ -261,15 +259,10 @@ $ok = $true
 foreach ($mql5 in $targets) {
   $ind  = Join-Path $mql5 "Indicators\BREAK100_Channel.mq5"
   $ea   = Join-Path $mql5 "Experts\Break100 Box Trading.mq5"
-  $auto = Join-Path $mql5 "Experts\RES-SUP OCO Auto.mq5"
   $exp  = Join-Path $mql5 "Scripts\Break100 Box Trading History Export.mq5"
   $oco  = Join-Path $mql5 "Scripts\RES-SUP OCO.mq5"
   if (-not (Compile-One $editor $ind $mql5)) { $ok = $false }
   if (-not (Compile-One $editor $ea  $mql5)) { $ok = $false }
-  if (Test-Path $auto) {
-    if (-not (Compile-One $editor $auto $mql5)) { $ok = $false }
-    if (-not (Assert-Compiled $auto)) { $ok = $false }
-  }
   if (-not (Compile-One $editor $exp $mql5)) { $ok = $false }
   if (-not (Compile-One $editor $oco $mql5)) { $ok = $false }
   # A "0 errors" log is not proof the binary was written. Check the artefact.
@@ -289,12 +282,6 @@ if ($ok) {
   Write-Host "*** default. Drag it onto a DEMO account chart first and read its own header"
   Write-Host "*** comment before you ever run it live."
   Write-Host ""
-  if (Test-Path (Join-Path $Src "Experts\RES-SUP OCO Auto.mq5")) {
-    Write-Host "*** 'RES-SUP OCO Auto' (Experts) is the AUTOMATED counterpart -- once attached"
-    Write-Host "*** it places orders on every future box arm with NO manual launch. Demo-test"
-    Write-Host "*** the full cycle (see its own header) before ever attaching it to a live chart."
-    Write-Host ""
-  }
   Write-Host "History export: Navigator -> Scripts -> 'Break100 Box Trading History Export'."
   Write-Host ""
   foreach ($mql5 in $targets) {
