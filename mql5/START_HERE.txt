@@ -1,4 +1,4 @@
-Break100 Box Trading v2.33 + RES-SUP OCO v1.01 — START HERE
+Break100 Box Trading v2.33 + RES-SUP OCO v1.03 — START HERE
 =============================================================
 
 What this is
@@ -28,7 +28,7 @@ Attach
        .\Install-Break100-Box-Trading.ps1 -Pull -SyncHF
      Everything ships on master; add -Branch master if your checkout drifted.
      Check the 'Deployed: EA ... Script ...' line it prints -- those versions
-     are read off disk, so they are the real ones. Expect EA 2.33, Script 1.01.
+     are read off disk, so they are the real ones. Expect EA 2.33, Script 1.03.
      Or by hand: compile Break100 Box Trading.mq5 AND RES-SUP OCO.mq5 in
      MetaEditor (F7 each). 0 errors on both.
   1. Chart: BREAK100, timeframe M30 only.

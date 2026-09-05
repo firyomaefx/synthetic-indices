@@ -1,10 +1,12 @@
 #property copyright "Break100 Box Trading"
-#property version   "1.01"
+#property version   "1.03"
 #property script_show_inputs
 #property description "Places a BUY STOP + SELL STOP OCO pair off the chart's RES/SUP rails,"
 #property description "each with SL/TP already attached. Cancels the sibling on fill."
 #property description "Not an EA — this is a Script: run it once per snapshot you want to act on."
 #property description "1.01  LIVE ACCOUNTS ENABLED (owner authorised). Real money when run on a real account."
+#property description "1.02  Honours SYMBOL_TRADE_STOPS_LEVEL per leg; a blocked leg no longer suppresses the other."
+#property description "1.03  Late entry: a rail breached under InpLateEntrySecs ago is taken at market, capped by InpLateEntryMaxR."
 
 // Reads the same RES/SUP rail objects "Break100 Box Trading.mq5" draws
 // (B100BoxRail -> BOX_RES/BOX_SUP, Break100 Box Trading.mq5:2475-2476), so
@@ -56,6 +58,11 @@
 #include <Break100/Mode.mqh>       // B100IsDemoAccount / B100IsRealAccount
 #include <Break100/DemoExec.mqh>   // B100FreezePrice (pure; tick-size normalisation)
 
+// How far back LevelBreachAgeMs looks for the first breach. Must be comfortably
+// wider than InpLateEntrySecs: a level that broke before this window began
+// reports its age as the window start, which correctly ages out as "too late".
+#define BREACH_WINDOW_SECS 60
+
 #define RESSUP_MAGIC 100265        // distinct from B100_MAGIC (DemoExec.mqh:12)
 
 input string InpResObjectName  = "B100_box_res";  // Chart object to read RES (resistance) from
@@ -67,6 +74,8 @@ input double InpSlBufR         = 0.15;            // SL beyond opposite rail, in
 input double InpTp1R           = 1.0;             // TP as a multiple of the stop distance (R)
 input double InpLots           = 0.01;            // Lot size per leg — change to suit your account
 input int    InpTimeoutMinutes = 240;             // Cancel both and exit if neither fills in time
+input int    InpLateEntrySecs  = 7;               // Take a breached level at market if it broke this recently (0=off)
+input double InpLateEntryMaxR  = 0.25;            // ...but only if the late price costs under this much extra R
 input bool   InpAllowLiveTrading = true;          // REAL MONEY on a live account. Set false to disable.
 
 bool ResSupAccountOk(void)
@@ -246,6 +255,101 @@ int FindFilledDirection(const ulong &known[])
    return 0;
   }
 
+// How long ago price FIRST traded through `level` in the breakout direction,
+// in milliseconds, or -1 if it never did inside the search window.
+//
+// A stop order that price has already run past cannot be placed at all -- the
+// server rejects a stop sitting on the wrong side of the market. The strategy's
+// signal has still fired, though, so the real choice is "enter late at market"
+// or "skip", and that turns on HOW late. Scanning forward from the oldest tick
+// in the window and stopping at the first breach is what makes a level that
+// broke long ago report as old rather than fresh: if price has been through it
+// for minutes, its first breach inside the window is the window's own start,
+// which ages out immediately. Timestamps come from the ticks themselves rather
+// than TimeCurrent(), so this stays millisecond-accurate.
+long LevelBreachAgeMs(const double level, const int dir)
+  {
+   MqlTick ticks[];
+   const datetime from = TimeCurrent() - BREACH_WINDOW_SECS;
+   const int n = CopyTicks(_Symbol, ticks, COPY_TICKS_INFO, (ulong)from * 1000, 0);
+   if(n <= 0)
+      return -1;
+   for(int i = 0; i < n; i++)
+     {
+      const bool breached = (dir > 0) ? (ticks[i].ask >= level) : (ticks[i].bid <= level);
+      if(breached)
+         return (long)ticks[n - 1].time_msc - (long)ticks[i].time_msc;
+     }
+   return -1;
+  }
+
+// Market entry for a level that already broke, carrying the SAME SL and TP the
+// pending leg would have used -- that is what "matches the Telegram alert".
+// Tagged with RESSUP_MAGIC like the pending legs so SnapshotExistingPositions
+// and FindFilledDirection still recognise the result as ours.
+bool PlaceMarket(const ENUM_ORDER_TYPE typ, const double sl, const double tp,
+                 ulong &order_ticket, string &err)
+  {
+   err = "";
+   order_ticket = 0;
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) || !MQLInfoInteger(MQL_TRADE_ALLOWED))
+     {
+      err = "TRADE_DISABLED";
+      return false;
+     }
+   if(InpLots <= 0.0 || sl <= 0.0)
+     {
+      err = "SL_OR_LOTS_INVALID";
+      return false;
+     }
+   const double px  = (typ == ORDER_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
+                                              : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   const double slx = B100FreezePrice(sl);
+   const double tpx = (tp > 0.0) ? B100FreezePrice(tp) : 0.0;
+   if(!B100FarEnough(px, slx) || (tpx > 0.0 && !B100FarEnough(px, tpx)))
+     {
+      err = "SL_OR_TP_INSIDE_STOPS_LEVEL";
+      return false;
+     }
+   MqlTradeRequest req;
+   MqlTradeResult res;
+   ZeroMemory(req);
+   ZeroMemory(res);
+   req.action    = TRADE_ACTION_DEAL;
+   req.symbol    = _Symbol;
+   req.volume    = InpLots;
+   req.type      = typ;
+   req.price     = px;
+   req.sl        = slx;
+   req.tp        = tpx;
+   req.deviation = 20;
+   req.magic     = RESSUP_MAGIC;
+   req.comment   = "RESSUP-OCO-LATE";
+   // Market orders reject outright on the wrong filling mode, and it differs by
+   // broker -- ask the symbol instead of assuming the pending legs' RETURN.
+   const long fill = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+   if((fill & SYMBOL_FILLING_FOK) != 0)
+      req.type_filling = ORDER_FILLING_FOK;
+   else if((fill & SYMBOL_FILLING_IOC) != 0)
+      req.type_filling = ORDER_FILLING_IOC;
+   else
+      req.type_filling = ORDER_FILLING_RETURN;
+   ResetLastError();
+   if(!OrderSend(req, res))
+     {
+      err = "MARKET_FAIL " + IntegerToString((int)res.retcode) +
+            " last=" + IntegerToString(GetLastError());
+      return false;
+     }
+   if(res.retcode != TRADE_RETCODE_DONE && res.retcode != TRADE_RETCODE_PLACED)
+     {
+      err = "MARKET_RETCODE=" + IntegerToString((int)res.retcode);
+      return false;
+     }
+   order_ticket = res.order;
+   return true;
+  }
+
 void OnStart(void)
   {
    if(!ResSupAccountOk())
@@ -297,6 +401,102 @@ void OnStart(void)
          "  SELL ", DoubleToString(sell_px, _Digits), " SL ", DoubleToString(sl_sell, _Digits),
          " TP ", DoubleToString(tp_sell, _Digits));
 
+   // Broker minimum distance for any pending/SL/TP. BREAK100 reports
+   // SYMBOL_TRADE_STOPS_LEVEL = 1000 points = 10.00 price units. The EA has
+   // honoured this since it placed its own pendings (Break100 Box Trading.mq5:
+   // 1520-1541, logged as SKIP_STOPS_LEVEL); this script never did, so a rail
+   // sitting within that distance of the market produced an order the server
+   // rejects outright with retcode 10016. Read live via B100StopsLevel() rather
+   // than hardcoded -- the broker can change it, and 0 means "no minimum".
+   //
+   // Each leg is judged on its own. Previously the BUY leg was sent first and a
+   // failure returned immediately, so a BUY blocked by this distance also
+   // suppressed a SELL that was perfectly placeable -- which is exactly the case
+   // when price is hugging the RES rail, the moment you most want to be armed.
+   const double ask  = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   const double bid  = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   const double need = B100StopsLevel();
+
+   // Each stop leg is in exactly one of three states, and only the first can be
+   // sent as a pending order at all:
+   //   placeable  entry is still the correct side of market by at least `need`
+   //   breached   price has already traded through the entry. A pending stop on
+   //              the wrong side of market is rejected outright -- but the
+   //              breakout this leg was waiting for HAS happened, so it becomes
+   //              a late-entry candidate rather than a dead leg.
+   //   too close  correct side, but nearer than `need`. The server rejects it
+   //              and the move has not happened, so there is nothing to enter
+   //              late either. Skip and re-run once price separates.
+   // Testing the side explicitly matters: B100FarEnough is a distance, so on its
+   // own it happily calls a BUY STOP 20 points BELOW the market "far enough".
+   const bool buy_sl_tp_ok  = B100FarEnough(buy_px, sl_buy) &&
+                              (tp_buy  <= 0.0 || B100FarEnough(buy_px, tp_buy));
+   const bool sell_sl_tp_ok = B100FarEnough(sell_px, sl_sell) &&
+                              (tp_sell <= 0.0 || B100FarEnough(sell_px, tp_sell));
+   const bool buy_breached  = (ask >= buy_px);
+   const bool sell_breached = (bid <= sell_px);
+   const bool buy_ok  = !buy_breached  && ((buy_px - ask) >= need) && buy_sl_tp_ok;
+   const bool sell_ok = !sell_breached && ((bid - sell_px) >= need) && sell_sl_tp_ok;
+
+   // Late entry. A breakout at most InpLateEntrySecs old is still worth taking
+   // at market, but only if the price now is close to the level the Telegram
+   // alert published -- capped at InpLateEntryMaxR of the planned risk. The SL
+   // stays where the box put it, so paying up without that cap would silently
+   // turn a 1R trade into a 1.5R one on the same stop.
+   int    late_dir = 0;
+   double late_sl  = 0.0, late_tp = 0.0;
+   string late_why = "";
+   if(InpLateEntrySecs > 0 && buy_breached && sell_breached)
+      late_why = "both rails are breached at once (spread wider than the box) — refusing";
+   else if(InpLateEntrySecs > 0 && (buy_breached || sell_breached))
+     {
+      const int    dir    = buy_breached ? 1 : -1;
+      const double level  = buy_breached ? buy_px : sell_px;
+      const double now_px = buy_breached ? ask    : bid;
+      const double extra  = MathAbs(now_px - level);
+      const double budget = MathMax(0.0, InpLateEntryMaxR) * (buy_breached ? r_buy : r_sell);
+      const bool   sltp   = buy_breached ? buy_sl_tp_ok : sell_sl_tp_ok;
+      const long   age    = LevelBreachAgeMs(level, dir);
+      const string side   = (dir > 0) ? "BUY" : "SELL";
+      if(age < 0)
+         late_why = side + " broke before the " + IntegerToString(BREACH_WINDOW_SECS) +
+                    "s look-back — too late";
+      else if(age > (long)InpLateEntrySecs * 1000)
+         late_why = side + " broke " + DoubleToString((double)age / 1000.0, 1) +
+                    "s ago, over the " + IntegerToString(InpLateEntrySecs) + "s budget";
+      else if(extra > budget)
+         late_why = side + " is " + DoubleToString(extra, _Digits) +
+                    " past the alert level, over the " + DoubleToString(budget, _Digits) +
+                    " (" + DoubleToString(InpLateEntryMaxR, 2) + "R) budget";
+      else if(!sltp)
+         late_why = side + " SL/TP would sit inside the broker stops level";
+      else
+        {
+         late_dir = dir;
+         late_sl  = buy_breached ? sl_buy : sl_sell;
+         late_tp  = buy_breached ? tp_buy : tp_sell;
+         Print("RES-SUP OCO: ", side, " broke ", DoubleToString((double)age / 1000.0, 1),
+               "s ago, ", DoubleToString(extra, _Digits), " past the alert level — taking it late.");
+        }
+     }
+
+   if(!buy_ok && !buy_breached)
+      Print("RES-SUP OCO: BUY leg skipped — inside broker stops level ",
+            DoubleToString(need, _Digits), " (entry ", DoubleToString(buy_px, _Digits),
+            " vs ask ", DoubleToString(ask, _Digits), ")");
+   if(!sell_ok && !sell_breached)
+      Print("RES-SUP OCO: SELL leg skipped — inside broker stops level ",
+            DoubleToString(need, _Digits), " (entry ", DoubleToString(sell_px, _Digits),
+            " vs bid ", DoubleToString(bid, _Digits), ")");
+   if(late_why != "")
+      Print("RES-SUP OCO: no late entry — ", late_why, ".");
+   if(!buy_ok && !sell_ok && late_dir == 0)
+     {
+      Print("RES-SUP OCO: nothing placeable — no pending leg is valid and no late ",
+            "entry qualifies. Re-run on the next box, or once price sits back inside this one.");
+      return;
+     }
+
    // Baseline the positions that already exist under our magic, BEFORE placing
    // anything, so the poll loop can tell our own fill from a still-running
    // position left by an earlier launch.
@@ -307,23 +507,70 @@ void OnStart(void)
             " position(s) already open under this magic — they will be ignored.");
 
    string err = "";
-   ulong buy_tk = 0, sell_tk = 0;
-   if(!PlacePending(ORDER_TYPE_BUY_STOP, buy_px, sl_buy, tp_buy, buy_tk, err))
+
+   // A late market entry IS the fill, so it resolves the OCO by itself and the
+   // opposite leg is deliberately never sent. Placing it anyway would leave a
+   // resting stop behind an already-open position — a hedge, not an OCO.
+   if(late_dir != 0)
      {
-      Print("RES-SUP OCO: BUY STOP failed — ", err);
+      ulong late_tk = 0;
+      const double level  = (late_dir > 0) ? buy_px : sell_px;
+      const double px_now = (late_dir > 0) ? ask    : bid;
+      if(!PlaceMarket((late_dir > 0) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL,
+                      late_sl, late_tp, late_tk, err))
+        {
+         Print("RES-SUP OCO: late ", (late_dir > 0 ? "BUY" : "SELL"),
+               " at market failed — ", err);
+         return;
+        }
+      Print("RES-SUP OCO: LATE ", (late_dir > 0 ? "BUY" : "SELL"), " at market ~",
+            DoubleToString(px_now, _Digits), "  alert level ", DoubleToString(level, _Digits),
+            "  SL ", DoubleToString(late_sl, _Digits), "  TP ", DoubleToString(late_tp, _Digits),
+            "  ticket=", late_tk,
+            ". Opposite leg not placed — this fill resolves the OCO.");
       return;
      }
-   if(!PlacePending(ORDER_TYPE_SELL_STOP, sell_px, sl_sell, tp_sell, sell_tk, err))
+
+   ulong buy_tk = 0, sell_tk = 0;
+   if(buy_ok && !PlacePending(ORDER_TYPE_BUY_STOP, buy_px, sl_buy, tp_buy, buy_tk, err))
      {
-      Print("RES-SUP OCO: SELL STOP failed — ", err, " — cancelling the BUY leg");
+      Print("RES-SUP OCO: BUY STOP failed — ", err);
+      buy_tk = 0;
+     }
+   if(sell_ok && !PlacePending(ORDER_TYPE_SELL_STOP, sell_px, sl_sell, tp_sell, sell_tk, err))
+     {
+      Print("RES-SUP OCO: SELL STOP failed — ", err);
+      sell_tk = 0;
+     }
+
+   // A two-sided arm that half-failed is still rolled back, exactly as before:
+   // an OCO reduced to one leg by an unexpected send failure is a directional
+   // bet the caller never asked for. A one-sided arm is only ever entered
+   // deliberately -- when the stops level ruled the other leg out above, before
+   // anything was sent.
+   if(buy_ok && sell_ok && ((buy_tk == 0) != (sell_tk == 0)))
+     {
+      const ulong orphan = (buy_tk != 0) ? buy_tk : sell_tk;
+      Print("RES-SUP OCO: only one leg of a two-sided arm was accepted — cancelling it.");
       string cerr = "";
-      if(!CancelTicket(buy_tk, cerr))
-         Print("RES-SUP OCO: WARNING — BUY STOP ticket=", buy_tk,
+      if(!CancelTicket(orphan, cerr))
+         Print("RES-SUP OCO: WARNING — ticket=", orphan,
                " could not be cancelled (", cerr, "). Cancel it by hand now.");
       return;
      }
-   Print("RES-SUP OCO: armed. BUY ticket=", buy_tk, "  SELL ticket=", sell_tk,
-         "  first fill cancels the other.");
+   if(buy_tk == 0 && sell_tk == 0)
+     {
+      Print("RES-SUP OCO: no legs placed — nothing to monitor.");
+      return;
+     }
+   if(buy_tk != 0 && sell_tk != 0)
+      Print("RES-SUP OCO: armed. BUY ticket=", buy_tk, "  SELL ticket=", sell_tk,
+            "  first fill cancels the other.");
+   else
+      Print("RES-SUP OCO: armed ONE-SIDED — ", (buy_tk != 0 ? "BUY" : "SELL"),
+            " ticket=", (buy_tk != 0 ? buy_tk : sell_tk),
+            ". The other leg was inside the broker stops level, so there is no",
+            " sibling to cancel on fill.");
 
    const ulong deadline = GetTickCount64() + (ulong)MathMax(InpTimeoutMinutes, 1) * 60000;
    while(!IsStopped())
@@ -346,6 +593,9 @@ void OnStart(void)
          if(TicketIsPending(other))
             Print("RES-SUP OCO: WARNING — ", (dir > 0 ? "SELL" : "BUY"),
                   " STOP ticket=", other, " IS STILL RESTING. Cancel it by hand now.");
+         else if(other == 0)
+            Print("RES-SUP OCO: ", (dir > 0 ? "BUY" : "SELL"),
+                  " filled — one-sided arm, no sibling to cancel.");
          else
             Print("RES-SUP OCO: ", (dir > 0 ? "BUY" : "SELL"), " filled — sibling cancelled.");
          return;

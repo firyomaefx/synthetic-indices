@@ -54,7 +54,7 @@ Desktop MT5 only. Not the iPhone app.
    ```powershell
    .\Install-Break100-Box-Trading.ps1 -Pull -SyncHF
    ```
-   (`-Pull` and `-SyncHF` are both optional — see the script's own header comment. Its compile step uses the MetaEditor CLI, so **F7 is not required by hand** unless you'd rather do it manually. Everything ships on `master`; add `-Branch master` if your checkout has drifted. The installer prints the versions it read off disk — expect **EA 2.33, Script 1.01** — and refuses to run if the OCO script is missing, rather than silently deploying an older build.)
+   (`-Pull` and `-SyncHF` are both optional — see the script's own header comment. Its compile step uses the MetaEditor CLI, so **F7 is not required by hand** unless you'd rather do it manually. Everything ships on `master`; add `-Branch master` if your checkout has drifted. The installer prints the versions it read off disk — expect **EA 2.33, Script 1.03** — and refuses to run if the OCO script is missing, rather than silently deploying an older build.)
 2. Open **BREAK100, M30**. Attach **Break100 Box Trading** (Experts) — detection, HUD, Telegram, Shadow ledger. Inputs: strategy **BOX_M30**, mode **OBSERVE** (or SHADOW).
 3. Experts log should show `B100 Telegram ON  chart=M30`. Other timeframes log `Telegram OFF`.
 
@@ -128,7 +128,7 @@ python tools/break100_hf_sync.py
 | Path | What |
 |---|---|
 | `mql5/Experts/Break100 Box Trading.mq5` | Chart EA (v2.33) — detects boxes, draws RES/SUP, HUD/Telegram/Shadow ledger. Places no orders since v2.33. |
-| `mql5/Scripts/RES-SUP OCO.mq5` | Standalone (v1.01): places the BUY STOP + SELL STOP pair off the chart's RES/SUP, cancels the sibling on fill. Run manually per snapshot. **Live accounts enabled** — real money. |
+| `mql5/Scripts/RES-SUP OCO.mq5` | Standalone (v1.03): places the BUY STOP + SELL STOP pair off the chart's RES/SUP, cancels the sibling on fill. Run manually per snapshot. **Live accounts enabled** — real money. |
 | `mql5/Install-Break100-Box-Trading.ps1` | One command: `-Pull` (git pull), copy EA + script + Include into every MT5 terminal found, compile both via the MetaEditor CLI, `-SyncHF` (HF sync). Everything except dragging the compiled files onto a chart. |
 | `mql5/Check-Break100-Install.ps1` | Read-only doctor. Reports what is actually deployed and compiled in every MT5 terminal, and what the repo checkout holds, so "my update didn't take effect" is answered from evidence. Changes nothing. |
 | `mql5/Include/Break100/` | Box, capture, train, Telegram, demo exec, learner |
