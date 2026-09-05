@@ -1,12 +1,12 @@
 #property copyright "Break100 Box Trading"
-#property version   "1.03"
+#property version   "1.04"
 #property script_show_inputs
 #property description "Places a BUY STOP + SELL STOP OCO pair off the chart's RES/SUP rails,"
 #property description "each with SL/TP already attached. Cancels the sibling on fill."
 #property description "Not an EA — this is a Script: run it once per snapshot you want to act on."
-#property description "1.01  LIVE ACCOUNTS ENABLED (owner authorised). Real money when run on a real account."
-#property description "1.02  Honours SYMBOL_TRADE_STOPS_LEVEL per leg; a blocked leg no longer suppresses the other."
-#property description "1.03  Late entry: a rail breached under InpLateEntrySecs ago is taken at market, capped by InpLateEntryMaxR."
+#property description "1.01 LIVE ACCOUNTS ENABLED. 1.02 per-leg broker stops-level check."
+#property description "1.03 late market entry on a recent breach."
+#property description "1.04 LIMIT retrace at the alert price first."
 
 // Reads the same RES/SUP rail objects "Break100 Box Trading.mq5" draws
 // (B100BoxRail -> BOX_RES/BOX_SUP, Break100 Box Trading.mq5:2475-2476), so
@@ -74,6 +74,7 @@ input double InpSlBufR         = 0.15;            // SL beyond opposite rail, in
 input double InpTp1R           = 1.0;             // TP as a multiple of the stop distance (R)
 input double InpLots           = 0.01;            // Lot size per leg — change to suit your account
 input int    InpTimeoutMinutes = 240;             // Cancel both and exit if neither fills in time
+input int    InpRetraceWaitSecs = 20;             // On a breach, wait this long for price to pull back to the alert level (0=off, go straight to late entry)
 input int    InpLateEntrySecs  = 7;               // Take a breached level at market if it broke this recently (0=off)
 input double InpLateEntryMaxR  = 0.25;            // ...but only if the late price costs under this much extra R
 input bool   InpAllowLiveTrading = true;          // REAL MONEY on a live account. Set false to disable.
@@ -137,7 +138,9 @@ bool ReadLevel(const string obj_name, const double manual, double &out_price)
   }
 
 // Local placement wrapper, modeled on B100DemoPlacePending (DemoExec.mqh:269-349)
-// but tagged with RESSUP_MAGIC instead of the EA's shared B100_MAGIC.
+// but tagged with RESSUP_MAGIC instead of the EA's shared B100_MAGIC. Handles
+// both STOP and LIMIT pendings -- the SL side check is about buy-vs-sell, not
+// stop-vs-limit, since a long's stop sits below entry either way.
 bool PlacePending(const ENUM_ORDER_TYPE typ, const double price, const double sl,
                   const double tp, ulong &ticket, string &err)
   {
@@ -156,14 +159,15 @@ bool PlacePending(const ENUM_ORDER_TYPE typ, const double price, const double sl
    const double px  = B100FreezePrice(price);
    const double slx = B100FreezePrice(sl);
    const double tpx = (tp > 0.0) ? B100FreezePrice(tp) : 0.0;
-   if(typ == ORDER_TYPE_BUY_STOP && slx >= px)
+   const bool   isBuy = (typ == ORDER_TYPE_BUY_STOP || typ == ORDER_TYPE_BUY_LIMIT);
+   if(isBuy && slx >= px)
      {
-      err = "SL_NOT_BELOW_BUY_STOP";
+      err = "SL_NOT_BELOW_BUY";
       return false;
      }
-   if(typ == ORDER_TYPE_SELL_STOP && slx <= px)
+   if(!isBuy && slx <= px)
      {
-      err = "SL_NOT_ABOVE_SELL_STOP";
+      err = "SL_NOT_ABOVE_SELL";
       return false;
      }
 
@@ -350,6 +354,64 @@ bool PlaceMarket(const ENUM_ORDER_TYPE typ, const double sl, const double tp,
    return true;
   }
 
+// After a breach, price often pulls back toward the broken rail before
+// continuing -- that pullback fills a LIMIT order at the exact alert price,
+// with no spread paid going through and no chase. This tries that first,
+// before the instant-market fallback: BUY_LIMIT/SELL_LIMIT at `level` (the
+// same buy_px/sell_px the alert published, so "matches the Telegram alert"
+// is literal, not approximate), same SL/TP as the pending leg would have
+// used. `known` must be snapshotted by the caller BEFORE this is called, so
+// FindFilledDirection can tell this fill from a pre-existing position.
+//
+// Returns true only on an actual fill. A timeout cancels the resting limit
+// and returns false -- the caller decides what "no retrace" means (currently:
+// fall through to the existing late-market-entry evaluation, using whatever
+// price the market is at by then).
+bool TryRetraceEntry(const int dir, const double level, const double sl, const double tp,
+                     const ulong &known[])
+  {
+   string err = "";
+   ulong  ticket = 0;
+   const ENUM_ORDER_TYPE typ = (dir > 0) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
+   if(!PlacePending(typ, level, sl, tp, ticket, err))
+     {
+      Print("RES-SUP OCO: retrace limit failed to place — ", err, " — trying late entry instead.");
+      return false;
+     }
+   Print("RES-SUP OCO: waiting up to ", InpRetraceWaitSecs, "s for a retrace fill at ",
+         DoubleToString(level, _Digits), "  ticket=", ticket);
+   const ulong deadline = GetTickCount64() + (ulong)MathMax(InpRetraceWaitSecs, 1) * 1000;
+   while(!IsStopped())
+     {
+      if(FindFilledDirection(known) != 0)
+        {
+         Print("RES-SUP OCO: retrace filled at ", DoubleToString(level, _Digits), " — best price, no chase.");
+         return true;
+        }
+      if(!TicketIsPending(ticket))
+        {
+         Print("RES-SUP OCO: retrace limit ticket=", ticket,
+               " is gone with no fill under our magic — trying late entry instead.");
+         return false;
+        }
+      if(GetTickCount64() >= deadline)
+        {
+         string cerr = "";
+         if(!CancelTicket(ticket, cerr))
+            Print("RES-SUP OCO: WARNING — retrace limit ticket=", ticket,
+                  " could not be cancelled (", cerr, "). Cancel it by hand now.");
+         Print("RES-SUP OCO: no retrace within ", InpRetraceWaitSecs, "s — trying late entry instead.");
+         return false;
+        }
+      Sleep(200);
+     }
+   // Stopped by the user mid-wait. Leave the limit resting rather than guess
+   // whether they wanted it cancelled -- same "pendings left as-is" contract
+   // OnStart's own poll loop already documents.
+   Print("RES-SUP OCO: stopped by user during the retrace wait — limit ticket=", ticket, " left as-is.");
+   return false;
+  }
+
 void OnStart(void)
   {
    if(!ResSupAccountOk())
@@ -438,11 +500,44 @@ void OnStart(void)
    const bool buy_ok  = !buy_breached  && ((buy_px - ask) >= need) && buy_sl_tp_ok;
    const bool sell_ok = !sell_breached && ((bid - sell_px) >= need) && sell_sl_tp_ok;
 
+   // Baseline the positions that already exist under our magic, BEFORE placing
+   // anything -- including the retrace attempt below -- so every poll loop in
+   // this run can tell our own fill from a still-running position an earlier
+   // launch left open.
+   ulong known[];
+   SnapshotExistingPositions(known);
+   if(ArraySize(known) > 0)
+      Print("RES-SUP OCO: ", ArraySize(known),
+            " position(s) already open under this magic — they will be ignored.");
+
+   // Retrace entry. Exactly one rail breaching is the case a pullback can
+   // actually happen for -- both at once (spread wider than the box) or
+   // neither leaves nothing to wait for. This runs BEFORE the late-entry
+   // evaluation below and, on success, skips it entirely: a retrace fill IS
+   // the entry, at a strictly better price than late entry could ever get
+   // (exactly the alert level, not "close to it").
+   if(InpRetraceWaitSecs > 0 && (buy_breached != sell_breached))
+     {
+      const int    dir   = buy_breached ? 1 : -1;
+      const double level = buy_breached ? buy_px : sell_px;
+      const double sl    = buy_breached ? sl_buy : sl_sell;
+      const double tp    = buy_breached ? tp_buy : tp_sell;
+      if(TryRetraceEntry(dir, level, sl, tp, known))
+         return;
+      if(IsStopped())
+         return;   // user cancelled mid-wait -- do not fall through to late entry
+     }
+
    // Late entry. A breakout at most InpLateEntrySecs old is still worth taking
    // at market, but only if the price now is close to the level the Telegram
    // alert published -- capped at InpLateEntryMaxR of the planned risk. The SL
    // stays where the box put it, so paying up without that cap would silently
-   // turn a 1R trade into a 1.5R one on the same stop.
+   // turn a 1R trade into a 1.5R one on the same stop. Deliberately re-reads
+   // ask/bid rather than reusing the values from before the retrace wait --
+   // that wait can run up to InpRetraceWaitSecs, and stale prices there would
+   // silently misjudge both the age and the distance-past-level checks below.
+   const double ask2 = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   const double bid2 = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    int    late_dir = 0;
    double late_sl  = 0.0, late_tp = 0.0;
    string late_why = "";
@@ -452,7 +547,7 @@ void OnStart(void)
      {
       const int    dir    = buy_breached ? 1 : -1;
       const double level  = buy_breached ? buy_px : sell_px;
-      const double now_px = buy_breached ? ask    : bid;
+      const double now_px = buy_breached ? ask2   : bid2;
       const double extra  = MathAbs(now_px - level);
       const double budget = MathMax(0.0, InpLateEntryMaxR) * (buy_breached ? r_buy : r_sell);
       const bool   sltp   = buy_breached ? buy_sl_tp_ok : sell_sl_tp_ok;
@@ -497,15 +592,6 @@ void OnStart(void)
       return;
      }
 
-   // Baseline the positions that already exist under our magic, BEFORE placing
-   // anything, so the poll loop can tell our own fill from a still-running
-   // position left by an earlier launch.
-   ulong known[];
-   SnapshotExistingPositions(known);
-   if(ArraySize(known) > 0)
-      Print("RES-SUP OCO: ", ArraySize(known),
-            " position(s) already open under this magic — they will be ignored.");
-
    string err = "";
 
    // A late market entry IS the fill, so it resolves the OCO by itself and the
@@ -515,7 +601,7 @@ void OnStart(void)
      {
       ulong late_tk = 0;
       const double level  = (late_dir > 0) ? buy_px : sell_px;
-      const double px_now = (late_dir > 0) ? ask    : bid;
+      const double px_now = (late_dir > 0) ? ask2   : bid2;
       if(!PlaceMarket((late_dir > 0) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL,
                       late_sl, late_tp, late_tk, err))
         {

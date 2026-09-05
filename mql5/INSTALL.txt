@@ -48,7 +48,7 @@ Copy files
     .\Install-Break100-Box-Trading.ps1 -Pull -Branch master
 
   The installer prints the versions it actually read off disk, e.g.
-    Deployed: EA 2.33  Script 1.03  ->  ...\MQL5
+    Deployed: EA 2.33  Script 1.04  ->  ...\MQL5
   If those are not the versions you expect, you are on the wrong branch. It no
   longer takes a version on trust -- an earlier build printed a hardcoded
   "v2.33" while deploying v2.31, which is exactly how a stale install went
@@ -80,7 +80,7 @@ Compile
   '0 error' on every file. Otherwise, by hand:
   F4 MetaEditor → open Break100 Box Trading.mq5 → F7. Log must say 0 errors.
   Repeat for RES-SUP OCO.mq5.
-  Version in the Navigator / Experts tab: 2.33 (EA), 1.03 (Script).
+  Version in the Navigator / Experts tab: 2.33 (EA), 1.04 (Script).
   Close MetaEditor. In MT5 Navigator: right-click Experts → Refresh, and
   right-click Scripts → Refresh.
 
